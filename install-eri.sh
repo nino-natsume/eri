@@ -7,11 +7,11 @@
 # 非交互模式 (curl | bash 一键): 自动部署已装工具;
 #           零工具时自动安装旗舰工具 opencode 并部署人格
 # 附: 部署完成后会注册独立可执行命令 `eri`,
-#     用 `eri update` 即可刷新人格 (见文件末尾)
+#     用 `eri update` 刷新人格, `eri uninstall` 整体卸载
+#     (见文件末尾)
 # ============================================================
 set -uo pipefail
 
-# 非交互检测: curl | bash 一键模式下 stdin 非终端
 INTERACTIVE=1
 [ -t 0 ] || INTERACTIVE=0
 
@@ -24,7 +24,6 @@ DL_CACHE="${TMPDIR:-/tmp}/eri.$$.md"
 cleanup() { rm -f "$DL_CACHE"; }
 trap cleanup EXIT INT TERM
 
-# ---------- 工具注册表 ----------
 TOOLS=(
   "opencode|OpenCode|opencode|npm install -g opencode-ai|https://opencode.ai|$HOME_DIR/.config/opencode/agents|eri.md|"
   "claude|Claude Code|claude|npm install -g @anthropic-ai/claude-code|https://code.claude.com|$HOME_DIR/.claude|CLAUDE.md|"
@@ -46,7 +45,6 @@ TOOLS=(
   "continue|Continue|continue||https://continue.dev|$HOME_DIR/.continue|AGENTS.md|"
 )
 
-# ---------- 人格源 ----------
 get_persona_source() {
   if [ -f "$SCRIPT_DIR/eri.md" ]; then
     echo "==> 使用本地人格文件: $SCRIPT_DIR/eri.md" >&2
@@ -67,7 +65,6 @@ get_persona_source() {
   echo "$DL_CACHE"
 }
 
-# ---------- JSONC 键值设置 ----------
 jsonc_set_key() {
   local file="$1" key="$2" val="$3" tmp="${file}.tmp.$$"
   if grep -q "\"$key\"[[:space:]]*:" "$file"; then
@@ -103,7 +100,6 @@ jsonc_set_key() {
   ' "$file" > "$tmp" && mv "$tmp" "$file"
 }
 
-# ---------- 工具专属配置派发 ----------
 enable_tool_config() {
   local id="$1" pdir="$2" pfile="$3"
   case "$id" in
@@ -124,7 +120,6 @@ enable_tool_config() {
   esac
 }
 
-# ---------- 按工具部署人格 ----------
 deploy_persona() {
   local id="$1" pdir="$2" pfile="$3" mode="$4" src="$5"
 
@@ -161,7 +156,6 @@ deploy_persona() {
   enable_tool_config "$id" "$pdir" "$pfile"
 }
 
-# ---------- 单个工具部署 ----------
 deploy_one() {
   local line="$1"
   IFS='|' read -ra F <<< "$line"
@@ -224,7 +218,6 @@ deploy_one() {
   done
 }
 
-# ---------- 主流程 ----------
 echo ""
 echo "=============================================="
 echo "  绘里酱 (eri) 人格 · 交互式部署"
@@ -296,7 +289,7 @@ echo ""
 echo "==> 部署完成!记得重启对应工具,让绘里酱人格生效♡"
 
 # ============================================================
-# 注册更新短命令 (eri update)
+# 注册更新短命令 (eri update / eri uninstall)
 # ============================================================
 BIN_DIR="$HOME_DIR/.local/bin"
 ERI_BIN="$BIN_DIR/eri"
@@ -313,6 +306,7 @@ cat > "$ERI_BIN" <<'ERI_EOF'
 #
 # 用法:
 #   eri update [RAW_URL]    更新人格到所有已安装的终端工具 (默认命令)
+#   eri uninstall [--yes]   卸载所有已部署的人格和 eri 命令
 #   eri help                显示帮助
 #   eri <RAW_URL>           兼容简写, 等价于 eri update <RAW_URL>
 #
@@ -322,6 +316,8 @@ set -uo pipefail
 
 DEFAULT_URL="https://raw.githubusercontent.com/nino-natsume/eri/main/eri.md"
 HOME_DIR="${HOME:-}"
+BIN_DIR="$HOME_DIR/.local/bin"
+ERI_BIN="$BIN_DIR/eri"
 
 show_help() {
   cat <<'HELP'
@@ -329,6 +325,8 @@ eri - 绘里酱人格管理工具
 
 用法:
   eri update [RAW_URL]    更新人格到所有已安装的终端工具 (默认命令)
+  eri uninstall [--yes]   卸载所有已部署的人格文件和 eri 命令
+                          (不带 --yes 时会在交互式终端里二次确认)
   eri help                显示帮助
   eri <RAW_URL>           兼容简写, 等价于 eri update <RAW_URL>
 
@@ -342,16 +340,129 @@ eri - 绘里酱人格管理工具
 HELP
 }
 
+do_uninstall() {
+  local yes_flag="${1:-}"
+  echo "==> 绘里酱人格卸载"
+  echo ""
+  echo "将执行以下操作:"
+  echo "  • 删除/恢复各工具的人格文件 (如 .bak 存在则恢复备份)"
+  echo "  • 清理 OpenCode default_agent 与 aider read 配置"
+  echo "  • 删除命令: $ERI_BIN"
+  echo "  • 从 shell 配置中移除本脚本添加的 PATH 行"
+  echo ""
+
+  if [ "$yes_flag" != "--yes" ] && [ "$yes_flag" != "-y" ]; then
+    if [ -t 0 ]; then
+      local ans
+      if ! read -rp "确认卸载? [y/N] " ans; then ans="n"; fi
+      if [ "$ans" != "y" ] && [ "$ans" != "Y" ]; then
+        echo "==> 已取消"
+        return 0
+      fi
+    else
+      echo "==> 非交互模式, 如需静默卸载请加 --yes (eri uninstall --yes)" >&2
+      return 1
+    fi
+  fi
+
+  local TOOLS=(
+    "opencode|opencode|$HOME_DIR/.config/opencode/agents|eri.md|"
+    "claude|claude|$HOME_DIR/.claude|CLAUDE.md|"
+    "codex|codex|$HOME_DIR/.codex|AGENTS.md|"
+    "gemini|gemini|$HOME_DIR/.gemini|GEMINI.md|"
+    "qwen|qwen|$HOME_DIR/.qwen|GEMINI.md|"
+    "aider|aider|$HOME_DIR/.config/aider|eri.md|aider"
+    "cursor|cursor-agent|$HOME_DIR/.cursor|AGENTS.md|"
+    "windsurf|windsurf|$HOME_DIR/.windsurf|AGENTS.md|"
+    "amp|amp|$HOME_DIR/.amp|AGENTS.md|"
+    "goose|goose|$HOME_DIR/.config/goose|AGENTS.md|"
+    "copilot|copilot|$HOME_DIR/.github/copilot|AGENTS.md|"
+    "plandex|plandex|$HOME_DIR/.plandex|AGENTS.md|"
+    "tabby|tabby-agent|$HOME_DIR/.tabby|AGENTS.md|"
+    "fabric|fabric|$HOME_DIR/.config/fabric|AGENTS.md|"
+    "openhands|openhands|$HOME_DIR/.openhands|AGENTS.md|"
+    "crush|crush|$HOME_DIR/.crush|AGENTS.md|"
+    "devin|devin|$HOME_DIR/.devin|AGENTS.md|"
+    "continue|continue|$HOME_DIR/.continue|AGENTS.md|"
+  )
+
+  local entry id cmd pdir pfile mode target
+  for entry in "${TOOLS[@]}"; do
+    IFS='|' read -r id cmd pdir pfile mode <<< "$entry"
+    target="$pdir/$pfile"
+    [ -e "$target" ] || continue
+    if [ -e "$target.bak" ]; then
+      mv -f "$target.bak" "$target"
+      echo "  已恢复: $target (来自备份)"
+    else
+      rm -f "$target"
+      echo "  已删除: $target"
+    fi
+  done
+
+  local aider_cfg="$HOME_DIR/.aider.conf.yml"
+  if [ -f "$aider_cfg" ]; then
+    if [ -f "$aider_cfg.bak" ]; then
+      mv -f "$aider_cfg.bak" "$aider_cfg"
+      echo "  已恢复: $aider_cfg (来自备份)"
+    elif grep -q '^read:.*eri\.md' "$aider_cfg"; then
+      local tmp1="${aider_cfg}.eri_uninst.$$"
+      grep -v '^read:.*eri\.md' "$aider_cfg" > "$tmp1" && mv "$tmp1" "$aider_cfg"
+      echo "  已清理: $aider_cfg (移除 read:)"
+    fi
+  fi
+
+  local opcfg="$HOME_DIR/.config/opencode/opencode.jsonc"
+  if [ -f "$opcfg.bak" ]; then
+    mv -f "$opcfg.bak" "$opcfg"
+    echo "  已恢复: $opcfg (来自备份)"
+  elif [ -f "$opcfg" ] && grep -q '"default_agent"[[:space:]]*:[[:space:]]*"eri"' "$opcfg"; then
+    local tmp2="${opcfg}.eri_uninst.$$"
+    grep -v '"default_agent"[[:space:]]*:[[:space:]]*"eri"' "$opcfg" > "$tmp2" && mv "$tmp2" "$opcfg"
+    echo "  已清理: $opcfg (移除 default_agent)"
+  fi
+
+  local rc
+  for rc in \
+    "$HOME_DIR/.bashrc" "$HOME_DIR/.bash_profile" "$HOME_DIR/.zshrc" \
+    "$HOME_DIR/.profile" "$HOME_DIR/.zprofile" "$HOME_DIR/.kshrc" \
+    "$HOME_DIR/.config/fish/config.fish" \
+    "$HOME_DIR/.tcshrc" "$HOME_DIR/.cshrc"
+  do
+    [ -f "$rc" ] || continue
+    if grep -qF '# eri: ensure ~/.local/bin in PATH' "$rc" 2>/dev/null; then
+      local tmp3="${rc}.eri_uninst.$$"
+      awk '
+        /^# eri: ensure ~\/\.local\/bin in PATH$/ { getline; next }
+        { print }
+      ' "$rc" > "$tmp3" && mv "$tmp3" "$rc"
+      echo "  已清理 PATH: $rc"
+    fi
+  done
+
+  if [ -f "$ERI_BIN" ]; then
+    rm -f "$ERI_BIN" "$ERI_BIN.bak"
+    echo "  已删除命令: $ERI_BIN"
+  fi
+
+  echo ""
+  echo "==> 卸载完成! 新开终端生效♡"
+}
+
 sub="${1:-update}"
 case "$sub" in
   update) shift ;;
+  uninstall|remove|rm)
+    shift
+    do_uninstall "${1:-}"
+    exit $?
+    ;;
   help|-h|--help) show_help; exit 0 ;;
-  *) ;;  # 兼容裸 URL
+  *) ;;
 esac
 
 RAW_URL="${1:-${ERI_URL:-$DEFAULT_URL}}"
 
-# ===== FIX: 兼容 GNU/BSD mktemp, 并保证 $DL 一定有值 =====
 if command -v mktemp >/dev/null 2>&1; then
   DL="$(mktemp "${TMPDIR:-/tmp}/eri.XXXXXX.md" 2>/dev/null)" || DL="${TMPDIR:-/tmp}/eri.$$.md"
 else
@@ -412,7 +523,6 @@ enable_tool_config() {
   esac
 }
 
-# id|cmd|pdir|pfile|mode
 TOOLS=(
   "opencode|opencode|$HOME_DIR/.config/opencode/agents|eri.md|"
   "claude|claude|$HOME_DIR/.claude|CLAUDE.md|"
@@ -471,7 +581,6 @@ ERI_EOF
 chmod +x "$ERI_BIN"
 echo "==> 已创建可执行命令: $ERI_BIN"
 
-# ---------- 移除旧的 eri() shell 函数 ----------
 remove_old_eri_func() {
   local rc="$1"
   [ -f "$rc" ] || return 0
@@ -494,18 +603,9 @@ do
   remove_old_eri_func "$rc"
 done
 
-# ============================================================
-# ===== FIX: 把 ~/.local/bin 前置到 PATH =====
-# 旧逻辑用 grep -qF '.local/bin' 判断, 若用户已有
-#   export PATH="$PATH:$HOME/.local/bin"
-# 会被误判为"已配置"而跳过, 导致 ~/.local/bin 排在 PATH 尾部,
-# 被 npm 等其它目录的 `eri` 抢占 → eri help / eri update 失效。
-# 新逻辑: 用唯一标记行判断, 无论用户原先怎么配, 都保证规范行存在。
-# ============================================================
 ensure_path_posix() {
   local rc="$1" line="$2"
   [ -f "$rc" ] || return 0
-  # 已由本脚本添加过 -> 幂等跳过
   if grep -qF '# eri: ensure ~/.local/bin in PATH' "$rc" 2>/dev/null; then
     return 0
   fi
@@ -538,16 +638,8 @@ done
 [ -f "$HOME_DIR/.tcshrc" ] && ensure_path_posix "$HOME_DIR/.tcshrc" "$TCSH_LINE"
 [ -f "$HOME_DIR/.cshrc" ]  && ensure_path_posix "$HOME_DIR/.cshrc"  "$TCSH_LINE"
 
-echo "==> 短命令 'eri update' 已就绪"
+echo "==> 短命令 'eri update' / 'eri uninstall' 已就绪"
 
-# ============================================================
-# ===== FIX: 冲突检测 + 主动遮蔽 =====
-# 旧逻辑只是"警告", 用户仍可能命中 npm 的 eri-blog。
-# 新逻辑区分:
-#   - 所有冲突 (列出)
-#   - 抢占项 (位于 ~/.local/bin 之前的, 会导致 eri 失效)
-# 对抢占项询问后自动重命名 *.eri-disabled, 立刻恢复 eri 短命令。
-# ============================================================
 conflicts=""
 hijack_files=""
 ERI_BIN_DIR="$(dirname "$ERI_BIN")"
@@ -614,18 +706,13 @@ else
   echo "==> 未检测到冲突的 eri 命令"
 fi
 
-# ============================================================
-# ===== FIX: 部署后验证 'eri' 短命令 =====
-# 明确告知用户当前 shell 是否已能直接使用 eri help / eri update,
-# 以及如何激活 (无需重启终端时).
-# ============================================================
 echo ""
 echo "==> 验证 'eri' 命令..."
 if command -v eri >/dev/null 2>&1; then
   RESOLVED="$(command -v eri)"
   if [ "$RESOLVED" = "$ERI_BIN" ]; then
     echo "    ✓ 'eri' 已正确解析到: $RESOLVED"
-    echo "      可以立即执行: eri help 或 eri update"
+    echo "      可以立即执行: eri help / eri update / eri uninstall"
   else
     echo "    ⚠ 'eri' 当前解析到: $RESOLVED (期望 $ERI_BIN)"
     echo "      请执行: hash -r; exec \$SHELL"

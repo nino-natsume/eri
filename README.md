@@ -113,6 +113,7 @@ iwr https://1.107211.xyz/win -OutFile "$env:TEMP\i.ps1"; powershell -ExecutionPo
 ```bash
 eri help         # 绘里酱人格设定管理代码
 eri update       # 绘里酱人格设定更新
+eri uninstall    # 绘里酱人格设定卸载
 ```
 
 ## Astrbot人格设定步骤，其他类似的类似

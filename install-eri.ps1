@@ -2,6 +2,9 @@
 # install-eri.ps1 - 绘里酱人格 · 交互式/一键部署 (Windows)
 # 用法: powershell -ExecutionPolicy Bypass -File install-eri.ps1
 #
+# 附: 部署完成后会注册独立可执行命令 `eri`,
+#     用 `eri update` 刷新人格, `eri uninstall` 整体卸载
+#
 # ⚠️  本文件必须保存为 UTF-8 with BOM, 否则 Windows PowerShell 5.1
 #    会按系统 ANSI 代码页(中文 Windows 为 GBK)解码, 导致中文字符串乱码、
 #    引号被吞并报"字符串缺少终止符"错误。
@@ -17,7 +20,6 @@ $ErrorActionPreference = "Stop"
 
 $Interactive = -not [Console]::IsInputRedirected
 
-# ---------- 工具注册表 ----------
 $Tools = @(
   [pscustomobject]@{ id = "opencode";  name = "OpenCode";                cmd = "opencode";      install = "npm install -g opencode-ai";                          site = "https://opencode.ai";                                pdir = "$env:USERPROFILE\.config\opencode\agents"; pfile = "eri.md" }
   [pscustomobject]@{ id = "claude";    name = "Claude Code";             cmd = "claude";        install = "npm install -g @anthropic-ai/claude-code";            site = "https://code.claude.com";                             pdir = "$env:USERPROFILE\.claude";                   pfile = "CLAUDE.md" }
@@ -39,7 +41,6 @@ $Tools = @(
   [pscustomobject]@{ id = "continue";  name = "Continue";                cmd = "continue";      install = "";                                                       site = "https://continue.dev";                                pdir = "$env:USERPROFILE\.continue";                 pfile = "AGENTS.md" }
 )
 
-# ---------- 人格源 ----------
 function Get-PersonaSource {
   $local = Join-Path $PSScriptRoot "eri.md"
   if (Test-Path -LiteralPath $local) {
@@ -57,7 +58,6 @@ function Get-PersonaSource {
   return $tmp
 }
 
-# ---------- OpenCode 配置 ----------
 function Set-OpenCodeDefaultAgent {
   param([string]$ConfigPath, [string]$AgentName)
 
@@ -102,7 +102,6 @@ function Set-OpenCodeDefaultAgent {
   Write-Host "==> OpenCode 配置已更新: $ConfigPath (default_agent = $AgentName)"
 }
 
-# ---------- 工具专属配置派发 ----------
 function Enable-ToolConfig {
   param($tool)
   switch ($tool.id) {
@@ -115,7 +114,6 @@ function Enable-ToolConfig {
   }
 }
 
-# ---------- 按工具部署人格 ----------
 function Deploy-Persona($tool, $src) {
   if ($tool.mode -eq "aider") {
     New-Item -ItemType Directory -Force -Path $tool.pdir | Out-Null
@@ -150,7 +148,6 @@ function Deploy-Persona($tool, $src) {
   Enable-ToolConfig $tool
 }
 
-# ---------- 单个工具部署流程 ----------
 function Deploy-One($tool) {
   Write-Host ""
   Write-Host "==== 部署: $($tool.name) (检查命令: $($tool.cmd)) ===="
@@ -207,7 +204,6 @@ function Deploy-One($tool) {
   }
 }
 
-# ---------- 主流程 ----------
 Write-Host ""
 Write-Host "=============================================="
 Write-Host "  绘里酱 (eri) 人格 · 交互式部署"
@@ -266,25 +262,19 @@ if ($Interactive) {
 Write-Host ""
 Write-Host "==> 部署完成!记得重启对应工具,让绘里酱人格生效♡"
 
-# ============================================================
-# 注册更新短命令 (eri update)
-# ============================================================
 $BinDir = Join-Path $env:USERPROFILE ".local\bin"
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 
 $EriPs1 = Join-Path $BinDir "eri-core.ps1"
 $EriCmd = Join-Path $BinDir "eri.cmd"
 
-# ---------- 1. 生成 eri-core.ps1 ----------
-# ⚠️  关键: 必须用 UTF-8 with BOM 写入, 否则 Windows PowerShell 5.1 会按
-#    系统 ANSI 代码页(中文 Windows 为 GBK)解码, 导致中文乱码、引号被吞,
-#    进而报 "字符串缺少终止符" 的 ParserError。
 $eriPs1Content = @'
 # eri - 绘里酱人格管理工具
 # 由 install-eri.ps1 生成; 可独立运行
 #
 # 用法:
 #   eri update [RAW_URL]    更新人格到所有已安装的终端工具 (默认命令)
+#   eri uninstall [--yes]   卸载所有已部署的人格和 eri 命令
 #   eri help                显示帮助
 #   eri <RAW_URL>           兼容简写, 等价于 eri update <RAW_URL>
 param(
@@ -294,6 +284,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $DEFAULT_URL = "https://raw.githubusercontent.com/nino-natsume/eri/main/eri.md"
+$BinDir      = Join-Path $env:USERPROFILE ".local\bin"
+$EriCmd      = Join-Path $BinDir "eri.cmd"
+$EriPs1      = Join-Path $BinDir "eri-core.ps1"
 
 function Show-Help {
   @"
@@ -301,12 +294,125 @@ eri - 绘里酱人格管理工具
 
 用法:
   eri update [RAW_URL]    更新人格到所有已安装的终端工具 (默认命令)
+  eri uninstall [--yes]   卸载所有已部署的人格文件和 eri 命令
+                          (不带 --yes 时会在交互式终端里二次确认)
   eri help                显示帮助
   eri <RAW_URL>           兼容简写, 等价于 eri update <RAW_URL>
 
 环境变量:
   ERI_URL                 自定义人格文件 URL
+
+常见问题:
+  若提示 'eri' 不是内部或外部命令, 请:
+    - 打开一个新终端
+    - 或执行: `$env:PATH = "$env:USERPROFILE\.local\bin;" + `$env:PATH
 "@
+}
+
+function Invoke-Uninstall {
+  param([switch]$Yes)
+
+  Write-Host "==> 绘里酱人格卸载"
+  Write-Host ""
+  Write-Host "将执行以下操作:"
+  Write-Host "  • 删除/恢复各工具的人格文件 (如 .bak 存在则恢复备份)"
+  Write-Host "  • 清理 OpenCode default_agent 与 aider read 配置"
+  Write-Host "  • 删除命令: $EriCmd 和 $EriPs1"
+  Write-Host "  • 从用户 PATH 中移除 $BinDir"
+  Write-Host ""
+
+  if (-not $Yes) {
+    if ([Console]::IsInputRedirected) {
+      Write-Host "==> 非交互模式, 如需静默卸载请加 --yes (eri uninstall --yes)"
+      exit 1
+    }
+    $ans = Read-Host "确认卸载? [y/N]"
+    if ($ans -notmatch '^[yY]') {
+      Write-Host "==> 已取消"
+      exit 0
+    }
+  }
+
+  $Tools = @(
+    @{ id = "opencode"; pdir = "$env:USERPROFILE\.config\opencode\agents"; pfile = "eri.md" }
+    @{ id = "claude";   pdir = "$env:USERPROFILE\.claude";                   pfile = "CLAUDE.md" }
+    @{ id = "codex";    pdir = "$env:USERPROFILE\.codex";                    pfile = "AGENTS.md" }
+    @{ id = "gemini";   pdir = "$env:USERPROFILE\.gemini";                   pfile = "GEMINI.md" }
+    @{ id = "qwen";     pdir = "$env:USERPROFILE\.qwen";                     pfile = "GEMINI.md" }
+    @{ id = "aider";    pdir = "$env:USERPROFILE\.config\aider";             pfile = "eri.md" }
+    @{ id = "cursor";   pdir = "$env:USERPROFILE\.cursor";                   pfile = "AGENTS.md" }
+    @{ id = "windsurf"; pdir = "$env:USERPROFILE\.windsurf";                 pfile = "AGENTS.md" }
+    @{ id = "amp";      pdir = "$env:USERPROFILE\.amp";                      pfile = "AGENTS.md" }
+    @{ id = "goose";    pdir = "$env:USERPROFILE\.config\goose";             pfile = "AGENTS.md" }
+    @{ id = "copilot";  pdir = "$env:USERPROFILE\.github\copilot";           pfile = "AGENTS.md" }
+    @{ id = "plandex";  pdir = "$env:USERPROFILE\.plandex";                  pfile = "AGENTS.md" }
+    @{ id = "tabby";    pdir = "$env:USERPROFILE\.tabby";                    pfile = "AGENTS.md" }
+    @{ id = "fabric";   pdir = "$env:USERPROFILE\.config\fabric";            pfile = "AGENTS.md" }
+    @{ id = "openhands";pdir = "$env:USERPROFILE\.openhands";                pfile = "AGENTS.md" }
+    @{ id = "crush";    pdir = "$env:USERPROFILE\.crush";                    pfile = "AGENTS.md" }
+    @{ id = "devin";    pdir = "$env:USERPROFILE\.devin";                    pfile = "AGENTS.md" }
+    @{ id = "continue"; pdir = "$env:USERPROFILE\.continue";                 pfile = "AGENTS.md" }
+  )
+
+  foreach ($tool in $Tools) {
+    $target = Join-Path $tool.pdir $tool.pfile
+    if (-not (Test-Path -LiteralPath $target)) { continue }
+    $bak = "$target.bak"
+    if (Test-Path -LiteralPath $bak) {
+      Move-Item -LiteralPath $bak -Destination $target -Force
+      Write-Host "  已恢复: $target (来自备份)"
+    } else {
+      Remove-Item -LiteralPath $target -Force
+      Write-Host "  已删除: $target"
+    }
+  }
+
+  $aiderCfg = Join-Path $env:USERPROFILE ".aider.conf.yml"
+  if (Test-Path -LiteralPath $aiderCfg) {
+    if (Test-Path -LiteralPath "$aiderCfg.bak") {
+      Move-Item -LiteralPath "$aiderCfg.bak" -Destination $aiderCfg -Force
+      Write-Host "  已恢复: $aiderCfg (来自备份)"
+    } else {
+      $content = Get-Content -LiteralPath $aiderCfg -Raw -Encoding UTF8
+      if ($content -match "(?m)^read\s*:.*eri\.md") {
+        $content = $content -replace "(?m)^read\s*:.*eri\.md.*(\r?\n)?", ""
+        [System.IO.File]::WriteAllText($aiderCfg, $content, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "  已清理: $aiderCfg"
+      }
+    }
+  }
+
+  $opcfg = Join-Path $env:USERPROFILE ".config\opencode\opencode.jsonc"
+  if (Test-Path -LiteralPath "$opcfg.bak") {
+    Move-Item -LiteralPath "$opcfg.bak" -Destination $opcfg -Force
+    Write-Host "  已恢复: $opcfg (来自备份)"
+  } elseif (Test-Path -LiteralPath $opcfg) {
+    $content = Get-Content -LiteralPath $opcfg -Raw -Encoding UTF8
+    if ($content -match '"default_agent"\s*:\s*"eri"') {
+      $content = [regex]::Replace($content, '\s*"default_agent"\s*:\s*"eri"\s*,?', '')
+      $content = [regex]::Replace($content, ',\s*}', "`n}")
+      [System.IO.File]::WriteAllText($opcfg, $content, (New-Object System.Text.UTF8Encoding($false)))
+      Write-Host "  已清理: $opcfg (移除 default_agent)"
+    }
+  }
+
+  $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+  if ($userPath) {
+    $parts = @($userPath -split ';' | Where-Object {
+      $_ -and $_.Trim() -ne "" -and ($_.TrimEnd('\') -ne $BinDir.TrimEnd('\'))
+    })
+    $newPath = $parts -join ';'
+    if ($newPath -ne $userPath) {
+      [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+      Write-Host "  已从用户 PATH 移除: $BinDir"
+    }
+  }
+
+  if (Test-Path -LiteralPath $EriCmd) { Remove-Item -LiteralPath $EriCmd -Force; Write-Host "  已删除: $EriCmd" }
+  if (Test-Path -LiteralPath $EriPs1) { Remove-Item -LiteralPath $EriPs1 -Force; Write-Host "  已删除: $EriPs1" }
+
+  Write-Host ""
+  Write-Host "==> 卸载完成! 新开终端生效♡"
 }
 
 $RawUrl = ""
@@ -315,6 +421,11 @@ switch -Regex ($Command.ToLower()) {
     if ($Rest.Count -gt 0) { $RawUrl = $Rest[0] }
     elseif ($env:ERI_URL)  { $RawUrl = $env:ERI_URL }
     else                   { $RawUrl = $DEFAULT_URL }
+  }
+  "^(uninstall|remove|rm)$" {
+    $yes = ($Rest -contains "--yes") -or ($Rest -contains "-y") -or ($Rest -contains "-yes")
+    if ($yes) { Invoke-Uninstall -Yes } else { Invoke-Uninstall }
+    exit $LASTEXITCODE
   }
   "^(help|-h|--help)$" { Show-Help; exit 0 }
   default {
@@ -424,24 +535,19 @@ if ($count -eq 0) {
 Write-Host "==> 已更新 $count 个工具的人格文件, 重启对应工具生效♡"
 '@
 
-# ---- 关键修复: 用 UTF-8 with BOM 写入, PS 5.1 才会正确按 UTF-8 解析 ----
 $utf8Bom = New-Object System.Text.UTF8Encoding($true)
 [System.IO.File]::WriteAllText($EriPs1, $eriPs1Content, $utf8Bom)
 
-# ---------- 2. 生成 eri.cmd (纯 ASCII, 无编码问题) ----------
 $eriCmdContent = @'
 @echo off
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0eri-core.ps1" %*
 '@
-# cmd.exe 偏好 CRLF 行尾
 $eriCmdContent = $eriCmdContent -replace '\r?\n', "`r`n"
 $ascii = New-Object System.Text.ASCIIEncoding
 [System.IO.File]::WriteAllText($EriCmd, $eriCmdContent, $ascii)
 
 Write-Host "==> 已创建可执行命令: $EriCmd"
 
-# ---------- 3. 把 $BinDir 前置到用户 PATH ----------
-# 必须"前置", 否则会被 npm 全局目录 (AppData\Roaming\npm) 抢占
 $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 if ($null -eq $userPath) { $userPath = "" }
 
@@ -457,17 +563,13 @@ if ($userPath -ne $newPath) {
   Write-Host "==> $BinDir 已在用户 PATH 最前"
 }
 
-# 当前会话也刷新, 便于立即验证
 $envExisting = @($env:PATH -split ';' | Where-Object {
   $_ -and $_.Trim() -ne "" -and ($_.TrimEnd('\') -ne $BinDir.TrimEnd('\'))
 })
 $env:PATH = (@($BinDir) + $envExisting) -join ';'
 
-Write-Host "==> 短命令 'eri update' 已就绪"
+Write-Host "==> 短命令 'eri update' / 'eri uninstall' 已就绪"
 
-# ============================================================
-# 冲突检测: PATH 里可能还有别的 eri (例如 npm 全局包 eri-blog)
-# ============================================================
 $expectedCmd = Join-Path $BinDir "eri.cmd"
 $conflicts = @(Get-Command eri -All -ErrorAction SilentlyContinue | Where-Object {
   $_.CommandType -eq 'Application' -and
