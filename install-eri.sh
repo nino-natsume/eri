@@ -25,7 +25,6 @@ cleanup() { rm -f "$DL_CACHE"; }
 trap cleanup EXIT INT TERM
 
 # ---------- 工具注册表 ----------
-# 格式: id|名称|检查命令|官网安装命令(空=官网手动)|官网|人格目标目录|人格文件名|特殊模式
 TOOLS=(
   "opencode|OpenCode|opencode|npm install -g opencode-ai|https://opencode.ai|$HOME_DIR/.config/opencode/agents|eri.md|"
   "claude|Claude Code|claude|npm install -g @anthropic-ai/claude-code|https://code.claude.com|$HOME_DIR/.claude|CLAUDE.md|"
@@ -335,6 +334,11 @@ eri - 绘里酱人格管理工具
 
 环境变量:
   ERI_URL                 自定义人格文件 URL
+
+常见问题:
+  若提示 'eri: command not found', 请执行:
+    export PATH="$HOME/.local/bin:$PATH"
+  或打开一个新终端窗口。
 HELP
 }
 
@@ -347,7 +351,12 @@ esac
 
 RAW_URL="${1:-${ERI_URL:-$DEFAULT_URL}}"
 
-DL="$(mktemp -t eri.XXXXXX.md 2>/dev/null || echo "/tmp/eri.$$.md")"
+# ===== FIX: 兼容 GNU/BSD mktemp, 并保证 $DL 一定有值 =====
+if command -v mktemp >/dev/null 2>&1; then
+  DL="$(mktemp "${TMPDIR:-/tmp}/eri.XXXXXX.md" 2>/dev/null)" || DL="${TMPDIR:-/tmp}/eri.$$.md"
+else
+  DL="${TMPDIR:-/tmp}/eri.$$.md"
+fi
 cleanup() { rm -f "$DL"; }
 trap cleanup EXIT INT TERM
 
@@ -485,14 +494,23 @@ do
   remove_old_eri_func "$rc"
 done
 
-# ---------- 把 ~/.local/bin 前置到 PATH ----------
+# ============================================================
+# ===== FIX: 把 ~/.local/bin 前置到 PATH =====
+# 旧逻辑用 grep -qF '.local/bin' 判断, 若用户已有
+#   export PATH="$PATH:$HOME/.local/bin"
+# 会被误判为"已配置"而跳过, 导致 ~/.local/bin 排在 PATH 尾部,
+# 被 npm 等其它目录的 `eri` 抢占 → eri help / eri update 失效。
+# 新逻辑: 用唯一标记行判断, 无论用户原先怎么配, 都保证规范行存在。
+# ============================================================
 ensure_path_posix() {
   local rc="$1" line="$2"
   [ -f "$rc" ] || return 0
-  if ! grep -qF '.local/bin' "$rc" 2>/dev/null; then
-    printf '\n# eri: ensure ~/.local/bin in PATH\n%s\n' "$line" >> "$rc"
-    echo "==> 已添加 PATH 到: $rc"
+  # 已由本脚本添加过 -> 幂等跳过
+  if grep -qF '# eri: ensure ~/.local/bin in PATH' "$rc" 2>/dev/null; then
+    return 0
   fi
+  printf '\n# eri: ensure ~/.local/bin in PATH\n%s\n' "$line" >> "$rc"
+  echo "==> 已添加 PATH 到: $rc"
 }
 
 PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
@@ -523,19 +541,29 @@ done
 echo "==> 短命令 'eri update' 已就绪"
 
 # ============================================================
-# 冲突检测: PATH 里可能还有别的 eri (例如 npm 全局包 eri-blog)
-# ------------------------------------------------------------
-# 说明: PATH 是"按目录顺序查找", 如果冲突的 eri 位于 ~/.local/bin 之前,
-#       会抢占我们的短命令; 本段会列出所有冲突并提示/询问清理
+# ===== FIX: 冲突检测 + 主动遮蔽 =====
+# 旧逻辑只是"警告", 用户仍可能命中 npm 的 eri-blog。
+# 新逻辑区分:
+#   - 所有冲突 (列出)
+#   - 抢占项 (位于 ~/.local/bin 之前的, 会导致 eri 失效)
+# 对抢占项询问后自动重命名 *.eri-disabled, 立刻恢复 eri 短命令。
 # ============================================================
 conflicts=""
+hijack_files=""
+ERI_BIN_DIR="$(dirname "$ERI_BIN")"
+seen_our_dir=0
 IFS=':' read -ra _dirs <<< "$PATH"
 for d in "${_dirs[@]}"; do
   [ -z "$d" ] && continue
+  if [ "$d" = "$ERI_BIN_DIR" ]; then
+    seen_our_dir=1
+    continue
+  fi
   for f in "$d/eri" "$d/eri.exe" "$d/eri.cmd" "$d/eri.ps1" "$d/eri.bat"; do
     [ -e "$f" ] || continue
     [ "$f" = "$ERI_BIN" ] && continue
     conflicts="${conflicts}${f}"$'\n'
+    [ "$seen_our_dir" -eq 0 ] && hijack_files="${hijack_files}${f}"$'\n'
   done
 done
 
@@ -543,6 +571,33 @@ if [ -n "$conflicts" ]; then
   echo ""
   echo "==> 警告: PATH 中存在其他 'eri' 命令, 可能抢占短命令:"
   printf '%s' "$conflicts" | sed 's/^/    - /'
+
+  if [ -n "$hijack_files" ]; then
+    echo ""
+    echo "    以下冲突位于 $ERI_BIN_DIR 之前, 会抢占 'eri' 短命令:"
+    printf '%s' "$hijack_files" | sed 's/^/    ⚠ /'
+
+    if [ "$INTERACTIVE" -eq 1 ]; then
+      if read -rp "是否自动遮蔽这些冲突 (重命名为 <name>.eri-disabled)? [Y/n] " ans; then
+        if [ "$ans" != "n" ] && [ "$ans" != "N" ]; then
+          while IFS= read -r c; do
+            [ -z "$c" ] && continue
+            [ -e "$c" ] || continue
+            [ "$c" = "$ERI_BIN" ] && continue
+            if mv "$c" "$c.eri-disabled" 2>/dev/null; then
+              echo "    已遮蔽: $c -> $c.eri-disabled"
+            else
+              echo "    无法重命名 (权限不足): $c"
+              echo "      请手动处理: sudo mv '$c' '$c.eri-disabled'"
+            fi
+          done <<< "$hijack_files"
+        fi
+      fi
+    else
+      echo "    (非交互模式, 跳过自动遮蔽; 可手动: mv '<file>' '<file>.eri-disabled')"
+    fi
+  fi
+
   if printf '%s' "$conflicts" | grep -qE '(npm|node_modules)'; then
     echo "    上述位置疑似 npm 全局包 (如 'eri-blog') 生成的命令, 建议卸载:"
     echo "          npm uninstall -g eri-blog"
@@ -557,4 +612,28 @@ if [ -n "$conflicts" ]; then
   echo "    如果新开终端后 'eri' 仍命中其他位置, 请检查 PATH 顺序, 或重开终端"
 else
   echo "==> 未检测到冲突的 eri 命令"
+fi
+
+# ============================================================
+# ===== FIX: 部署后验证 'eri' 短命令 =====
+# 明确告知用户当前 shell 是否已能直接使用 eri help / eri update,
+# 以及如何激活 (无需重启终端时).
+# ============================================================
+echo ""
+echo "==> 验证 'eri' 命令..."
+if command -v eri >/dev/null 2>&1; then
+  RESOLVED="$(command -v eri)"
+  if [ "$RESOLVED" = "$ERI_BIN" ]; then
+    echo "    ✓ 'eri' 已正确解析到: $RESOLVED"
+    echo "      可以立即执行: eri help 或 eri update"
+  else
+    echo "    ⚠ 'eri' 当前解析到: $RESOLVED (期望 $ERI_BIN)"
+    echo "      请执行: hash -r; exec \$SHELL"
+  fi
+else
+  echo "    ⚠ 当前 shell 尚未识别 'eri' 命令"
+  echo "      任选其一立即生效:"
+  echo "        - 打开新终端窗口"
+  echo "        - 执行: export PATH=\"\$HOME/.local/bin:\$PATH\""
+  echo "        - 执行: hash -r; exec \$SHELL"
 fi
