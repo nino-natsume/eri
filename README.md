@@ -109,9 +109,10 @@ iwr https://1.107211.xyz/win -OutFile "$env:TEMP\i.ps1"; powershell -ExecutionPo
 
 > 覆盖已有配置文件前会自动备份为 `.bak`
 
-## 日常更新人格
+## 绘里酱CLI（Eri-CLI）
 ```bash
-eri          # bash 设备,安装时已注册短命令
+eri help         # 绘里酱人格设定管理代码
+eri update       # 绘里酱人格设定更新
 ```
 
 ## Astrbot人格设定步骤，其他类似的类似
