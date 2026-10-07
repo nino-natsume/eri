@@ -65,8 +65,16 @@ get_persona_source() {
   echo "$DL_CACHE"
 }
 
+# ---------- JSONC 键值设置 ----------
+# 注意: bash < 4.4 中 `local a="$1" b="${a}.x"` 里的 ${a} 会先按外层作用域展开,
+#       在 set -u 下会触发 "a: unbound variable"。因此这里拆成多行按序赋值。
 jsonc_set_key() {
-  local file="$1" key="$2" val="$3" tmp="${file}.tmp.$$"
+  local file key val tmp
+  file="${1:-}"
+  key="${2:-}"
+  val="${3:-}"
+  [ -n "$file" ] && [ -f "$file" ] || return 1
+  tmp="${file}.tmp.$$"
   if grep -q "\"$key\"[[:space:]]*:" "$file"; then
     sed -i "s/\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"$key\": \"$val\"/" "$file"
     return
@@ -477,8 +485,16 @@ if ! curl -fsSL "$RAW_URL" -o "$DL"; then
   exit 1
 fi
 
+# ---------- JSONC 键值设置 ----------
+# 注意: bash < 4.4 中 `local a="$1" b="${a}.x"` 里的 ${a} 会先按外层作用域展开,
+#       在 set -u 下会触发 "a: unbound variable"。因此这里拆成多行按序赋值。
 jsonc_set_key() {
-  local file="$1" key="$2" val="$3" tmp="${file}.tmp.$$"
+  local file key val tmp
+  file="${1:-}"
+  key="${2:-}"
+  val="${3:-}"
+  [ -n "$file" ] && [ -f "$file" ] || return 1
+  tmp="${file}.tmp.$$"
   if grep -q "\"$key\"[[:space:]]*:" "$file"; then
     sed -i "s/\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"$key\": \"$val\"/" "$file"
     return
