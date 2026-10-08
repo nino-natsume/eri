@@ -15,9 +15,16 @@
 
 | 文件 | 用途 |
 |---|---|
-| `eri.md` | 人格本体,部署到目标工具的配置目录即自动加载 |
-| `install-eri.sh` | bash 交互式部署脚本 |
-| `install-eri.ps1` | PowerShell 交互式部署脚本 |
+| `eri.md` | 人格本体，部署到目标工具的配置目录即自动加载 |
+| `agents/eri.md` | 人格本体副本（OpenCode `agents/` 目录布局） |
+| `install-eri.sh` | bash 交互式/一键部署脚本（含 OpenCode 深度集成） |
+| `install-eri.ps1` | PowerShell 交互式/一键部署脚本（含 OpenCode 深度集成） |
+| `SKILL.md` | opencode skill：人格激活、人格/mood 配置 |
+| `erotic-chan.md`<br>`code-monkey.md`<br>`debug-san.md`<br>`architect-sama.md`<br>`test-chan.md` | 5 个子智慧体（色情 / 代码 / 调试 / 架构 / 测试） |
+| `personality.json` | opencode-personality 插件配置（default / 绘里酱 / erotic 三人格 + mood 系统） |
+| `opencode.json` | opencode 配置模板（插件、skill 路径、子智慧体注册、`/mood` `/personality` 等命令） |
+| `package.json` | 深度部署时写入 `~/.config/opencode/` 的依赖（`opencode-personality` 插件） |
+| `PKGBUILD` `.SRCINFO` `eri.install` | Arch Linux AUR 打包三件套 |
 
 ## 支持的终端编程工具
 
@@ -62,7 +69,7 @@ powershell -ExecutionPolicy Bypass -File install-eri.ps1
 ```bash
 git clone https://github.com/nino-natsume/eri.git
 cd ~/eri
-chmod +x install-eri.sh（部分系统可能需要）
+chmod +x install-eri.sh   # 部分系统可能需要
 bash install-eri.sh
 ```
 
@@ -81,10 +88,36 @@ iwr https://1.107211.xyz/win -OutFile "$env:TEMP\i.ps1"; powershell -ExecutionPo
 
 装完后**重启工具**,我，绘里酱就出来啦~
 
+## Arch Linux / AUR 部署
+
+本仓库自带 AUR 打包能力（`PKGBUILD` + `.SRCINFO` + `eri.install`），Arch 上两条路任选：
+
+```bash
+# 方式一：AUR 助手（已发布到 AUR 时）
+yay -S eri        # 或 paru -S eri
+
+# 方式二：克隆本仓库本地构建
+git clone https://github.com/nino-natsume/eri.git
+cd eri
+makepkg -si       # 构建并安装，依赖 opencode / nodejs / npm
+```
+
+安装完成后运行部署脚本：
+
+```bash
+/usr/share/eri/install-eri.sh
+#   菜单选 0   = OpenCode 深度集成（skill + 5 子智慧体 + personality 插件 + mood）
+#   菜单选 1-18 = 部署到 Claude Code / Codex / Gemini CLI 等 18 种终端工具（轻量人格）
+```
+
+> 深度集成资源查找顺序：`/usr/share/eri`（pacman 安装） > 脚本所在目录（仓库克隆）；
+> 轻量人格文件查找顺序：本地 `eri.md` > 从 GitHub 下载。
+> 所以无论是在 Arch 装包、克隆仓库、还是 `curl | bash`，同一套脚本都能跑。
+
 ## 补充
 若未启用，修改以下路径，确保文件内容:
 
-`C:\Users\10932\.config\opencode\opencode.jsonc`(Win)、`~/.config/opencode/opencode.jsonc`(Linux、WSL等)
+`%USERPROFILE%\.config\opencode\opencode.jsonc`(Win)、`~/.config/opencode/opencode.jsonc`(Linux、WSL等)
 
 ```opencode.jsonc
 {

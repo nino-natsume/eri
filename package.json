@@ -1,0 +1,9 @@
+{
+  "name": "eri-personality-aur",
+  "version": "1.1.0",
+  "description": "绘里酱人格包：opencode-personality 插件 + 5 个子智慧体 + eri skill",
+  "dependencies": {
+    "@opencode-ai/plugin": "1.17.9",
+    "opencode-personality": "^1.2.0"
+  }
+}

@@ -4,8 +4,12 @@
 # 用法: bash install-eri.sh [RAW_URL]
 # 交互模式: 选择工具 -> 查找本地路径 -> 已装则部署人格 /
 #           未装则按官网方式安装 -> 检查确认安装完成后部署人格
+#           菜单 0 = OpenCode 深度集成（skill + 5 子智慧体 + personality 插件 + mood）
 # 非交互模式 (curl | bash 一键): 自动部署已装工具;
-#           零工具时自动安装旗舰工具 opencode 并部署人格
+#           零工具时自动安装旗舰工具 opencode 并部署人格;
+#           本地存在深度资源(仓库克隆或 AUR 安装)时自动追加深度集成
+# 深度资源(skill/personality/子智慧体)查找: /usr/share/eri (pacman) > 脚本所在目录 (仓库克隆)
+# 人格文件(eri.md)查找: 脚本所在目录 > RAW_URL 下载
 # 附: 部署完成后会注册独立可执行命令 `eri`,
 #     用 `eri update` 刷新人格, `eri uninstall` 整体卸载
 #     (见文件末尾)
@@ -19,6 +23,7 @@ DEFAULT_URL="https://raw.githubusercontent.com/nino-natsume/eri/main/eri.md"
 RAW_URL="${1:-$DEFAULT_URL}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOME_DIR="${HOME:-}"
+PKG_DIR="/usr/share/eri"
 DL_CACHE="${TMPDIR:-/tmp}/eri.$$.md"
 
 cleanup() { rm -f "$DL_CACHE"; }
@@ -65,6 +70,113 @@ get_persona_source() {
   echo "$DL_CACHE"
 }
 
+# ---------- 深度部署资源查找: 包内(pacman) > 脚本同目录(仓库克隆) ----------
+# 注意: 提示信息走 stderr, stdout 只输出路径供命令替换捕获
+find_deep_src() {
+  local d
+  for d in "$PKG_DIR" "$SCRIPT_DIR"; do
+    [ -f "$d/personality.json" ] || continue
+    echo "==> 使用深度部署资源: $d" >&2
+    echo "$d"
+    return 0
+  done
+  return 1
+}
+
+# 在资源目录中定位文件: 兼容 仓库扁平布局($dir/SKILL.md) 与 打包布局($dir/skill/eri/SKILL.md)
+deep_pick() {
+  local dir="$1" rel="$2" flat="$3"
+  if [ -f "$dir/$rel" ]; then echo "$dir/$rel"; return 0; fi
+  if [ -f "$dir/$flat" ]; then echo "$dir/$flat"; return 0; fi
+  return 1
+}
+
+# ---------- 菜单 0：OpenCode 深度集成（skill + 5 子智慧体 + personality 插件 + mood） ----------
+deploy_opencode_deep() {
+  local src
+  if ! src="$(find_deep_src)"; then
+    echo "==> 错误：未找到深度部署资源(personality.json)" >&2
+    echo "    请在仓库根目录运行本脚本，或先通过包管理器安装 eri" >&2
+    return 1
+  fi
+
+  # 与轻量部署/eri CLI/uninstall 保持一致, 固定使用 $HOME/.config (不引入 XDG 分裂)
+  local cfg="$HOME_DIR/.config/opencode"
+  mkdir -p "$cfg/agent" "$cfg/skill/eri"
+
+  cp -f "$src/personality.json" "$cfg/personality.json"
+  echo "==> personality.json -> $cfg/personality.json"
+
+  local a f
+  for a in erotic-chan code-monkey debug-san architect-sama test-chan; do
+    if f="$(deep_pick "$src" "agent/$a.md" "$a.md")"; then
+      cp -f "$f" "$cfg/agent/$a.md"
+      echo "==> agent/$a.md -> $cfg/agent/$a.md"
+    else
+      echo "==> 警告：缺少子智慧体 $a.md,已跳过" >&2
+    fi
+  done
+
+  if f="$(deep_pick "$src" "skill/eri/SKILL.md" "SKILL.md")"; then
+    cp -f "$f" "$cfg/skill/eri/SKILL.md"
+    echo "==> SKILL.md -> $cfg/skill/eri/SKILL.md"
+  else
+    echo "==> 警告：缺少 SKILL.md,skill 不可用" >&2
+  fi
+
+  # opencode 配置处理: 无配置 -> 直接写模板;
+  # 已有配置含 plugin 字段 -> 已深度集成, 跳过(幂等);
+  # 已有配置缺深度字段(如轻量部署只写了 default_agent) -> 交互确认后备份覆盖, 并保留原 default_agent
+  local oc="$cfg/opencode.jsonc" write_tpl=1 old_da=""
+  [ -f "$cfg/opencode.json" ] && [ ! -f "$oc" ] && oc="$cfg/opencode.json"
+  if [ ! -f "$oc" ]; then
+    cp -f "$src/opencode.json" "$cfg/opencode.jsonc"
+    echo "==> opencode.json -> $cfg/opencode.jsonc"
+  elif grep -q '"plugin"' "$oc"; then
+    echo "==> 已有 opencode 配置含深度集成字段,跳过模板写入: $oc"
+  else
+    old_da="$(grep -o '"default_agent"[[:space:]]*:[[:space:]]*"[^"]*"' "$oc" | head -n1 | sed 's/.*:[[:space:]]*"\([^"]*\)"$/\1/')"
+    if [ "$INTERACTIVE" -eq 1 ]; then
+      local ans
+      if ! read -rp "已有 opencode 配置缺少 plugin/skills 等深度字段,是否备份后用模板覆盖? [Y/n] " ans; then ans="n"; fi
+      case "$ans" in n|N) write_tpl=0 ;; esac
+    fi
+    if [ "$write_tpl" -eq 1 ]; then
+      # 首触备份: 保留覆盖前的原始配置
+      if [ ! -f "$oc.bak" ]; then
+        cp -f "$oc" "$oc.bak"
+        echo "==> 备份旧配置: $oc.bak"
+      fi
+      cp -f "$src/opencode.json" "$oc"
+      echo "==> 深度配置已写入: $oc (旧配置在 .bak,可自行合并其中的自定义字段)"
+      if [ -n "$old_da" ]; then
+        jsonc_set_key "$oc" "default_agent" "$old_da"
+        echo "==> 已保留原 default_agent = $old_da"
+      fi
+    else
+      echo "注意：请手动合并 $src/opencode.json 中的 plugin/agent/skills/command 字段到 $oc"
+    fi
+  fi
+
+  if [[ ! -f "$cfg/package.json" ]]; then
+    cp -f "$src/package.json" "$cfg/package.json"
+    echo "==> package.json -> $cfg/package.json"
+  fi
+
+  if command -v npm >/dev/null 2>&1; then
+    (cd "$cfg" && npm install --no-audit --no-fund) || {
+      echo "==> 错误：npm install 失败,请检查网络后在 $cfg 下重试" >&2
+      return 1
+    }
+  else
+    echo "==> 错误：未找到 npm。请先安装 npm 后重试本步骤 (Arch: sudo pacman -S npm)" >&2
+    return 1
+  fi
+
+  echo "==> OpenCode 深度部署完成！重启 opencode 生效。"
+  echo "    之后可用 /personality 管理人格, /force-chat 与 /force-work 切换模式, /mood 设置心情。"
+}
+
 # ---------- JSONC 键值设置 ----------
 # 注意: bash < 4.4 中 `local a="$1" b="${a}.x"` 里的 ${a} 会先按外层作用域展开,
 #       在 set -u 下会触发 "a: unbound variable"。因此这里拆成多行按序赋值。
@@ -76,7 +188,8 @@ jsonc_set_key() {
   [ -n "$file" ] && [ -f "$file" ] || return 1
   tmp="${file}.tmp.$$"
   if grep -q "\"$key\"[[:space:]]*:" "$file"; then
-    sed -i "s/\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"$key\": \"$val\"/" "$file"
+    # BSD/macOS sed 不支持 -i, 统一走 临时文件+mv
+    sed "s/\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"$key\": \"$val\"/" "$file" > "$tmp" && mv "$tmp" "$file"
     return
   fi
   awk -v k="$key" -v v="$val" '
@@ -117,8 +230,11 @@ enable_tool_config() {
       opcfg="$opcfg_dir/opencode.jsonc"
       agent_name="${pfile%.md}"
       if [ -f "$opcfg" ]; then
-        cp "$opcfg" "$opcfg.bak"
-        echo "==> 备份旧配置: $opcfg.bak"
+        # 首触备份: 不让后续重跑覆盖最初的配置
+        if [ ! -f "$opcfg.bak" ]; then
+          cp "$opcfg" "$opcfg.bak"
+          echo "==> 备份旧配置: $opcfg.bak"
+        fi
         jsonc_set_key "$opcfg" "default_agent" "$agent_name"
       else
         printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "default_agent": "%s"\n}\n' "$agent_name" > "$opcfg"
@@ -137,12 +253,26 @@ deploy_persona() {
     cp "$src" "$persona_file"
     local cfg="$HOME_DIR/.aider.conf.yml"
     if [ -f "$cfg" ]; then
-      cp "$cfg" "$cfg.bak"
-      echo "==> 备份旧配置: $cfg.bak"
-      local esc
-      esc="$(printf '%s' "$persona_file" | sed 's/[&\\|]/\\&/g')"
-      if grep -q '^read:' "$cfg"; then
-        sed -i "s|^read:.*|read: $esc|" "$cfg"
+      # 首触备份: 保留用户最初的 aider 配置
+      if [ ! -f "$cfg.bak" ]; then
+        cp "$cfg" "$cfg.bak"
+        echo "==> 备份旧配置: $cfg.bak"
+      fi
+      if grep -qF "$persona_file" "$cfg"; then
+        echo "==> aider read 已包含本路径,无需修改"
+      elif grep -q '^read:' "$cfg"; then
+        # 追加到现有 read 列表, 不覆盖用户已有的其它文件
+        local tmpcfg="${cfg}.tmp.$$"
+        awk -v p="$persona_file" '
+          /^read:[[:space:]]*$/ && !done { print; print "  - " p; done=1; next }
+          /^read:/ && !done {
+            sub(/^[[:space:]]*read:[[:space:]]*/, "")
+            print "read: " $0 " " p
+            done=1; next
+          }
+          { print }
+        ' "$cfg" > "$tmpcfg" && mv "$tmpcfg" "$cfg"
+        echo "==> 已追加到 aider read: $persona_file"
       else
         echo "read: $persona_file" >> "$cfg"
       fi
@@ -155,7 +285,8 @@ deploy_persona() {
 
   mkdir -p "$pdir"
   local target="$pdir/$pfile"
-  if [ -f "$target" ]; then
+  # 首触备份: 只在没有 .bak 时留底; 若目标已是我们部署过的内容(重跑), 不把自己的内容当备份
+  if [ -f "$target" ] && [ ! -f "$target.bak" ] && ! cmp -s "$src" "$target"; then
     cp "$target" "$target.bak"
     echo "==> 备份旧文件: $target.bak"
   fi
@@ -231,7 +362,8 @@ echo "=============================================="
 echo "  绘里酱 (eri) 人格 · 交互式部署"
 echo "=============================================="
 echo ""
-echo "支持的终端编程工具:"
+echo "  0. OpenCode 深度集成            （skill+子智慧体+personality 插件+mood）"
+echo "支持的终端编程工具（轻量人格部署）:"
 for i in "${!TOOLS[@]}"; do
   IFS='|' read -ra F <<< "${TOOLS[$i]}"
   printf "  %2d. %-24s 检查命令: %s\n" "$((i + 1))" "${F[1]}" "${F[2]}"
@@ -240,7 +372,7 @@ done
 if [ "$INTERACTIVE" -eq 1 ]; then
   while true; do
     echo ""
-    if ! read -rp "请选择工具编号(支持逗号多选,如 1,2,5; 输入 q 退出): " choice; then
+    if ! read -rp "请选择工具编号(0=OpenCode深度集成,支持逗号多选,如 0,1,5; 输入 q 退出): " choice; then
       break
     fi
     case "${choice//[[:space:]]/}" in
@@ -249,7 +381,10 @@ if [ "$INTERACTIVE" -eq 1 ]; then
     ok=0
     IFS=',， ' read -ra NUMS <<< "$choice"
     for n in "${NUMS[@]}"; do
-      if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#TOOLS[@]}" ]; then
+      if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -eq 0 ]; then
+        deploy_opencode_deep
+        ok=1
+      elif [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#TOOLS[@]}" ]; then
         deploy_one "${TOOLS[$((n - 1))]}"
         ok=1
       fi
@@ -259,6 +394,11 @@ if [ "$INTERACTIVE" -eq 1 ]; then
 else
   echo ""
   echo "==> 检测到非交互模式(stdin 非终端),自动部署所有已安装的工具..."
+  deep_src=""
+  if deep_src="$(find_deep_src)"; then
+    echo "==> 检测到本地深度资源($deep_src),先执行 OpenCode 深度集成..."
+    deploy_opencode_deep || echo "==> 深度集成未完全成功(不影响轻量人格部署)"
+  fi
   deployed=0
   for i in "${!TOOLS[@]}"; do
     IFS='|' read -ra F <<< "${TOOLS[$i]}"
@@ -409,26 +549,70 @@ do_uninstall() {
   done
 
   local aider_cfg="$HOME_DIR/.aider.conf.yml"
+  local my_aider_path="$HOME_DIR/.config/aider/eri.md"
   if [ -f "$aider_cfg" ]; then
     if [ -f "$aider_cfg.bak" ]; then
       mv -f "$aider_cfg.bak" "$aider_cfg"
       echo "  已恢复: $aider_cfg (来自备份)"
-    elif grep -q '^read:.*eri\.md' "$aider_cfg"; then
+    fi
+    # 重复部署会把本路径刷进备份, 恢复后再做 token 级清理 (只摘掉我们自己的路径, 保留用户其它 read 文件)
+    if grep -qF "$my_aider_path" "$aider_cfg" 2>/dev/null; then
       local tmp1="${aider_cfg}.eri_uninst.$$"
-      grep -v '^read:.*eri\.md' "$aider_cfg" > "$tmp1" && mv "$tmp1" "$aider_cfg"
-      echo "  已清理: $aider_cfg (移除 read:)"
+      awk -v p="$my_aider_path" '
+        /^[[:space:]]*-[[:space:]]/ && index($0, p) { next }
+        /^read:/ {
+          line = $0
+          sub(/^[[:space:]]*read:[[:space:]]*/, "", line)
+          if (line == "") { print; next }
+          n = split(line, arr, /[[:space:]]+/)
+          out = ""
+          for (i = 1; i <= n; i++) {
+            if (arr[i] == "" || arr[i] == p) continue
+            out = (out == "") ? arr[i] : out " " arr[i]
+          }
+          if (out == "") next
+          print "read: " out
+          next
+        }
+        { print }
+      ' "$aider_cfg" > "$tmp1" && mv "$tmp1" "$aider_cfg"
+      echo "  已清理: $aider_cfg (移除本工具的 read 路径)"
     fi
   fi
 
-  local opcfg="$HOME_DIR/.config/opencode/opencode.jsonc"
-  if [ -f "$opcfg.bak" ]; then
-    mv -f "$opcfg.bak" "$opcfg"
-    echo "  已恢复: $opcfg (来自备份)"
-  elif [ -f "$opcfg" ] && grep -q '"default_agent"[[:space:]]*:[[:space:]]*"eri"' "$opcfg"; then
-    local tmp2="${opcfg}.eri_uninst.$$"
-    grep -v '"default_agent"[[:space:]]*:[[:space:]]*"eri"' "$opcfg" > "$tmp2" && mv "$tmp2" "$opcfg"
-    echo "  已清理: $opcfg (移除 default_agent)"
-  fi
+  # 恢复备份后再清理一次 default_agent (重复部署会把 eri 配置刷进 .bak), 含尾逗号修正
+  local opcfg
+  for opcfg in "$HOME_DIR/.config/opencode/opencode.jsonc" "$HOME_DIR/.config/opencode/opencode.json"; do
+    if [ -f "$opcfg.bak" ]; then
+      mv -f "$opcfg.bak" "$opcfg"
+      echo "  已恢复: $opcfg (来自备份)"
+    fi
+    [ -f "$opcfg" ] || continue
+    if grep -q '"default_agent"[[:space:]]*:[[:space:]]*"eri"' "$opcfg" 2>/dev/null; then
+      local tmp2="${opcfg}.eri_uninst.$$"
+      awk '
+        {
+          if ($0 ~ /"default_agent"[[:space:]]*:[[:space:]]*"eri"/) {
+            if ($0 ~ /^[[:space:]]*"default_agent"[[:space:]]*:[[:space:]]*"[^"]*"[[:space:]]*,?[[:space:]]*$/) next
+            sub(/,[[:space:]]*"default_agent"[[:space:]]*:[[:space:]]*"eri"/, "")
+            sub(/"default_agent"[[:space:]]*:[[:space:]]*"eri"[[:space:]]*,[[:space:]]*/, "")
+          }
+          buf[++n] = $0
+        }
+        END {
+          L = n
+          while (L > 0 && buf[L] ~ /^[[:space:]]*$/) L--
+          if (L > 1 && buf[L] ~ /^[[:space:]]*}/) {
+            j = L - 1
+            while (j > 1 && buf[j] ~ /^[[:space:]]*$/) j--
+            if (buf[j] ~ /,[[:space:]]*$/) sub(/,[[:space:]]*$/, "", buf[j])
+          }
+          for (i = 1; i <= n; i++) print buf[i]
+        }
+      ' "$opcfg" > "$tmp2" && mv "$tmp2" "$opcfg"
+      echo "  已清理: $opcfg (移除 default_agent)"
+    fi
+  done
 
   local rc
   for rc in \
@@ -451,6 +635,15 @@ do_uninstall() {
   if [ -f "$ERI_BIN" ]; then
     rm -f "$ERI_BIN" "$ERI_BIN.bak"
     echo "  已删除命令: $ERI_BIN"
+  fi
+
+  local deepcfg="$HOME_DIR/.config/opencode"
+  if [ -f "$deepcfg/personality.json" ]; then
+    echo ""
+    echo "  提示: OpenCode 深度集成文件仍保留, 未自动移除:"
+    echo "    $deepcfg/personality.json"
+    echo "    $deepcfg/skill/eri/  $deepcfg/agent/  $deepcfg/package.json"
+    echo "    如需彻底移除, 删除上述文件/目录, 并从 opencode.jsonc 中移除 plugin/skills/agent/command 字段"
   fi
 
   echo ""
@@ -496,7 +689,8 @@ jsonc_set_key() {
   [ -n "$file" ] && [ -f "$file" ] || return 1
   tmp="${file}.tmp.$$"
   if grep -q "\"$key\"[[:space:]]*:" "$file"; then
-    sed -i "s/\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"$key\": \"$val\"/" "$file"
+    # BSD/macOS sed 不支持 -i, 统一走 临时文件+mv
+    sed "s/\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"$key\": \"$val\"/" "$file" > "$tmp" && mv "$tmp" "$file"
     return
   fi
   awk -v k="$key" -v v="$val" '
@@ -571,13 +765,22 @@ for entry in "${TOOLS[@]}"; do
   if [ "$mode" = "aider" ]; then
     cfg="$HOME_DIR/.aider.conf.yml"
     persona_file="$pdir/$pfile"
-    if [ -f "$cfg" ]; then
-      if grep -q '^read:' "$cfg"; then
-        esc="$(printf '%s' "$persona_file" | sed 's/[&\\|]/\\&/g')"
-        sed -i "s|^read:.*|read: $esc|" "$cfg"
-      else
-        echo "read: $persona_file" >> "$cfg"
-      fi
+    if grep -qF "$persona_file" "$cfg" 2>/dev/null; then
+      : # 已包含, 不重复追加
+    elif [ -f "$cfg" ] && grep -q '^read:' "$cfg"; then
+      # 追加到现有 read 列表, 不覆盖用户已有的其它文件
+      tmpcfg="${cfg}.tmp.$$"
+      awk -v p="$persona_file" '
+        /^read:[[:space:]]*$/ && !done { print; print "  - " p; done=1; next }
+        /^read:/ && !done {
+          sub(/^[[:space:]]*read:[[:space:]]*/, "")
+          print "read: " $0 " " p
+          done=1; next
+        }
+        { print }
+      ' "$cfg" > "$tmpcfg" && mv "$tmpcfg" "$cfg"
+    elif [ -f "$cfg" ]; then
+      echo "read: $persona_file" >> "$cfg"
     else
       echo "read: $persona_file" > "$cfg"
     fi

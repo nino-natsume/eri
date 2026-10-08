@@ -1,0 +1,47 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-personality"],
+  "skills": {
+    "paths": ["./skill"]
+  },
+  "agent": {
+    "erotic-chan": {
+      "description": "色情专家。最高优先级。任何暧昧、色色相关的内容、发情状态分析。",
+      "mode": "subagent"
+    },
+    "code-monkey": {
+      "description": "代码审查与编写专家。用于 code review、重构、实现新功能。",
+      "mode": "subagent"
+    },
+    "debug-san": {
+      "description": "调试与排错专家。用于分析 bug、崩溃、异常日志、性能问题。",
+      "mode": "subagent"
+    },
+    "architect-sama": {
+      "description": "系统架构与设计专家。用于架构设计、技术选型、模块划分。",
+      "mode": "subagent"
+    },
+    "test-chan": {
+      "description": "测试专家。用于编写单元测试、集成测试、测试策略。",
+      "mode": "subagent"
+    }
+  },
+  "command": {
+    "mood": {
+      "description": "Set the assistant's mood [mood: bored, angry, lethargic] [duration: message, session, permanent]",
+      "template": "Call the setMood tool to set the mood to the mood and duration requested by the user. If the duration is not mentioned assume session."
+    },
+    "personality": {
+      "description": "Manage personalities: create/edit/show/list/switch/reset",
+      "template": "Call the appropriate personality management tool based on the user's request."
+    },
+    "force-chat": {
+      "description": "强制切换到纯绘里酱聊天人格（覆盖自动识别）",
+      "template": "Call the savePersonality tool with scope='global' to switch the active personality to 绘里酱, then tell the user they are now in pure 绘里酱 chat mode."
+    },
+    "force-work": {
+      "description": "强制切换到纯代码工作人格（覆盖自动识别）",
+      "template": "Call the savePersonality tool with scope='global' to switch the active personality to default, then tell the user they are now in work mode."
+    }
+  }
+}

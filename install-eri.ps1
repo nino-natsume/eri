@@ -1,6 +1,8 @@
 ﻿# ============================================================
 # install-eri.ps1 - 绘里酱人格 · 交互式/一键部署 (Windows)
 # 用法: powershell -ExecutionPolicy Bypass -File install-eri.ps1
+# 菜单 0 = OpenCode 深度集成（skill + 5 子智慧体 + personality 插件 + mood）
+# 资源查找顺序: /usr/share/eri > 脚本所在目录 (仓库克隆)
 #
 # 附: 部署完成后会注册独立可执行命令 `eri`,
 #     用 `eri update` 刷新人格, `eri uninstall` 整体卸载
@@ -58,6 +60,132 @@ function Get-PersonaSource {
   return $tmp
 }
 
+# ---------- 深度部署资源查找: 包内(pacman) > 脚本同目录(仓库克隆) ----------
+function Find-DeepSrc {
+  foreach ($d in @("/usr/share/eri", $PSScriptRoot)) {
+    if ($d -and (Test-Path -LiteralPath (Join-Path $d "personality.json"))) {
+      Write-Host "==> 使用深度部署资源: $d"
+      return $d
+    }
+  }
+  return $null
+}
+
+# 兼容 仓库扁平布局($dir/SKILL.md) 与 打包布局($dir/skill/eri/SKILL.md)
+function Get-DeepFile {
+  param([string]$Dir, [string]$Rel, [string]$Flat)
+  $relPath = Join-Path $Dir ($Rel -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+  if (Test-Path -LiteralPath $relPath) { return $relPath }
+  $flatPath = Join-Path $Dir $Flat
+  if (Test-Path -LiteralPath $flatPath) { return $flatPath }
+  return $null
+}
+
+# ---------- 菜单 0：OpenCode 深度集成（skill + 5 子智慧体 + personality 插件 + mood） ----------
+function Deploy-OpenCodeDeep {
+  $src = Find-DeepSrc
+  if (-not $src) {
+    Write-Host "==> 错误：未找到深度部署资源(personality.json),请在仓库根目录运行本脚本"
+    return $false
+  }
+  $cfg = Join-Path $env:USERPROFILE ".config\opencode"
+  New-Item -ItemType Directory -Force -Path (Join-Path $cfg "agent"), (Join-Path $cfg "skill\eri") | Out-Null
+
+  Copy-Item -LiteralPath (Join-Path $src "personality.json") -Destination (Join-Path $cfg "personality.json") -Force
+  Write-Host "==> personality.json -> $cfg\personality.json"
+
+  foreach ($a in @("erotic-chan", "code-monkey", "debug-san", "architect-sama", "test-chan")) {
+    $f = Get-DeepFile -Dir $src -Rel "agent/$a.md" -Flat "$a.md"
+    if ($f) {
+      Copy-Item -LiteralPath $f -Destination (Join-Path $cfg "agent\$a.md") -Force
+      Write-Host "==> agent/$a.md -> $cfg\agent\$a.md"
+    } else {
+      Write-Host "==> 警告：缺少子智慧体 $a.md,已跳过"
+    }
+  }
+
+  $skill = Get-DeepFile -Dir $src -Rel "skill/eri/SKILL.md" -Flat "SKILL.md"
+  if ($skill) {
+    Copy-Item -LiteralPath $skill -Destination (Join-Path $cfg "skill\eri\SKILL.md") -Force
+    Write-Host "==> SKILL.md -> $cfg\skill\eri\SKILL.md"
+  } else {
+    Write-Host "==> 警告：缺少 SKILL.md,skill 不可用"
+  }
+
+  # opencode 配置处理: 无配置 -> 写模板; 含 plugin -> 已深度集成(幂等跳过);
+  # 缺深度字段(如轻量部署只写了 default_agent) -> 交互确认后备份覆盖, 并保留原 default_agent
+  $oc = Join-Path $cfg "opencode.jsonc"
+  if (-not (Test-Path -LiteralPath $oc) -and (Test-Path -LiteralPath (Join-Path $cfg "opencode.json"))) {
+    $oc = Join-Path $cfg "opencode.json"
+  }
+  if (-not (Test-Path -LiteralPath $oc)) {
+    Copy-Item -LiteralPath (Join-Path $src "opencode.json") -Destination (Join-Path $cfg "opencode.jsonc") -Force
+    Write-Host "==> opencode.json -> $cfg\opencode.jsonc"
+  } else {
+    $content = Get-Content -LiteralPath $oc -Raw -Encoding UTF8
+    if ($content -match '"plugin"') {
+      Write-Host "==> 已有 opencode 配置含深度集成字段,跳过模板写入: $oc"
+    } else {
+      $writeTpl = $true
+      if ($Interactive) {
+        $ans = Read-Host "已有 opencode 配置缺少 plugin/skills 等深度字段,是否备份后用模板覆盖? [Y/n]"
+        if ($ans -eq "n" -or $ans -eq "N") { $writeTpl = $false }
+      }
+      if ($writeTpl) {
+        # 首触备份: 保留覆盖前的原始配置
+        if (-not (Test-Path -LiteralPath "$oc.bak")) {
+          Copy-Item -LiteralPath $oc -Destination "$oc.bak" -Force
+          Write-Host "==> 备份旧配置: $oc.bak"
+        }
+        $oldDa = $null
+        if ($content -match '"default_agent"\s*:\s*"([^"]*)"') { $oldDa = $Matches[1] }
+        Copy-Item -LiteralPath (Join-Path $src "opencode.json") -Destination $oc -Force
+        Write-Host "==> 深度配置已写入: $oc (旧配置在 .bak,可自行合并其中的自定义字段)"
+        if ($oldDa) {
+          $t = Get-Content -LiteralPath $oc -Raw -Encoding UTF8
+          $idx = $t.LastIndexOf("}")
+          if ($idx -ge 0) {
+            $head = $t.Substring(0, $idx).TrimEnd()
+            $tail = $t.Substring($idx)
+            if ($head.EndsWith(",")) { $head = $head.Substring(0, $head.Length - 1).TrimEnd() }
+            if ($head.EndsWith("{")) { $t = "$head`n  `"default_agent`": `"$oldDa`"`n$tail" }
+            else { $t = "$head,`n  `"default_agent`": `"$oldDa`"`n$tail" }
+            [System.IO.File]::WriteAllText($oc, $t, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Host "==> 已保留原 default_agent = $oldDa"
+          }
+        }
+      } else {
+        Write-Host "注意：请手动合并 $src/opencode.json 中的 plugin/agent/skills/command 字段到 $oc"
+      }
+    }
+  }
+
+  if (-not (Test-Path -LiteralPath (Join-Path $cfg "package.json"))) {
+    Copy-Item -LiteralPath (Join-Path $src "package.json") -Destination (Join-Path $cfg "package.json") -Force
+    Write-Host "==> package.json -> $cfg\package.json"
+  }
+
+  if (Get-Command npm -ErrorAction SilentlyContinue) {
+    Push-Location $cfg
+    try {
+      & npm install --no-audit --no-fund
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host "==> 错误：npm install 失败,请检查网络后在 $cfg 下重试"
+        return $false
+      }
+    } finally {
+      Pop-Location
+    }
+  } else {
+    Write-Host "==> 错误：未找到 npm,请先安装 Node.js/npm 后重试"
+    return $false
+  }
+
+  Write-Host "==> OpenCode 深度部署完成！重启 opencode 生效。"
+  Write-Host "    之后可用 /personality 管理人格, /force-chat 与 /force-work 切换模式, /mood 设置心情。"
+  return $true
+}
+
 function Set-OpenCodeDefaultAgent {
   param([string]$ConfigPath, [string]$AgentName)
 
@@ -70,8 +198,11 @@ function Set-OpenCodeDefaultAgent {
     return
   }
 
-  Copy-Item -LiteralPath $ConfigPath -Destination "$ConfigPath.bak" -Force
-  Write-Host "==> 备份旧配置: $ConfigPath.bak"
+  # 首触备份: 不让后续重跑覆盖最初的配置
+  if (-not (Test-Path -LiteralPath "$ConfigPath.bak")) {
+    Copy-Item -LiteralPath $ConfigPath -Destination "$ConfigPath.bak" -Force
+    Write-Host "==> 备份旧配置: $ConfigPath.bak"
+  }
 
   $content = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8
 
@@ -121,15 +252,29 @@ function Deploy-Persona($tool, $src) {
     Copy-Item -LiteralPath $src -Destination $personaFile -Force
     $cfg = Join-Path $env:USERPROFILE ".aider.conf.yml"
     if (Test-Path -LiteralPath $cfg) {
-      Copy-Item -LiteralPath $cfg -Destination "$cfg.bak" -Force
-      Write-Host "==> 备份旧配置: $cfg.bak"
-      $content = Get-Content -LiteralPath $cfg -Raw -Encoding UTF8
-      if ($content -match "(?m)^read\s*:") {
-        $content = $content -replace "(?m)^read\s*:.*$", "read: $personaFile"
-      } else {
-        $content = $content.TrimEnd() + "`nread: $personaFile`n"
+      # 首触备份: 保留用户最初的 aider 配置
+      if (-not (Test-Path -LiteralPath "$cfg.bak")) {
+        Copy-Item -LiteralPath $cfg -Destination "$cfg.bak" -Force
+        Write-Host "==> 备份旧配置: $cfg.bak"
       }
-      [System.IO.File]::WriteAllText($cfg, $content, (New-Object System.Text.UTF8Encoding($false)))
+      $content = Get-Content -LiteralPath $cfg -Raw -Encoding UTF8
+      if ($content -match [regex]::Escape($personaFile)) {
+        Write-Host "==> aider read 已包含本路径,无需修改"
+      } else {
+        $lines = Get-Content -LiteralPath $cfg
+        $done = $false
+        $out = @(foreach ($ln in $lines) {
+          if (-not $done -and $ln -match '^(?<ind>\s*)read\s*:\s*(?<val>.*)$') {
+            $done = $true
+            $val = $Matches['val'].Trim()
+            $ind = $Matches['ind']
+            if ($val -eq '') { $ln; "$ind  - $personaFile" } else { "read: $val $personaFile" }
+          } else { $ln }
+        })
+        if (-not $done) { $out = @($out + "read: $personaFile") }
+        [System.IO.File]::WriteAllLines($cfg, $out, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "==> 已追加到 aider read: $personaFile"
+      }
     } else {
       [System.IO.File]::WriteAllText($cfg, "read: $personaFile`n", (New-Object System.Text.UTF8Encoding($false)))
     }
@@ -139,9 +284,14 @@ function Deploy-Persona($tool, $src) {
 
   New-Item -ItemType Directory -Force -Path $tool.pdir | Out-Null
   $target = Join-Path $tool.pdir $tool.pfile
-  if (Test-Path -LiteralPath $target) {
-    Copy-Item -LiteralPath $target -Destination "$target.bak" -Force
-    Write-Host "==> 备份旧文件: $target.bak"
+  # 首触备份: 只在没有 .bak 时留底; 若目标已是我们部署过的内容(重跑), 不把自己的内容当备份
+  if ((Test-Path -LiteralPath $target) -and -not (Test-Path -LiteralPath "$target.bak")) {
+    $hSrc = (Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash
+    $hDst = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+    if ($hSrc -ne $hDst) {
+      Copy-Item -LiteralPath $target -Destination "$target.bak" -Force
+      Write-Host "==> 备份旧文件: $target.bak"
+    }
   }
   Copy-Item -LiteralPath $src -Destination $target -Force
   Write-Host "==> 人格已部署: $target"
@@ -209,7 +359,8 @@ Write-Host "=============================================="
 Write-Host "  绘里酱 (eri) 人格 · 交互式部署"
 Write-Host "=============================================="
 Write-Host ""
-Write-Host "支持的终端编程工具:"
+Write-Host "  0. OpenCode 深度集成            （skill+子智慧体+personality 插件+mood）"
+Write-Host "支持的终端编程工具（轻量人格部署）:"
 for ($i = 0; $i -lt $Tools.Count; $i++) {
   Write-Host ("  {0,2}. {1,-24} 检查命令: {2}" -f ($i + 1), $Tools[$i].name, $Tools[$i].cmd)
 }
@@ -217,19 +368,25 @@ for ($i = 0; $i -lt $Tools.Count; $i++) {
 if ($Interactive) {
   while ($true) {
     Write-Host ""
-    $choice = Read-Host "请选择工具编号(支持逗号多选,如 1,2,5; 输入 q 退出)"
+    $choice = Read-Host "请选择工具编号(0=OpenCode深度集成,支持逗号多选,如 0,1,5; 输入 q 退出)"
     if (-not $choice) { continue }
     $choice = $choice.Trim()
     if ($choice -match "^[qQ]$") { break }
     $nums = @($choice -split "[,\s，]+" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match "^\d+$" } | ForEach-Object { [int]$_ })
     if ($nums.Count -eq 0) { Write-Host "==> 输入无效,请重新选择"; continue }
     foreach ($n in $nums) {
-      if ($n -ge 1 -and $n -le $Tools.Count) { Deploy-One $Tools[$n - 1] }
+      if ($n -eq 0) { Deploy-OpenCodeDeep }
+      elseif ($n -ge 1 -and $n -le $Tools.Count) { Deploy-One $Tools[$n - 1] }
     }
   }
 } else {
   Write-Host ""
   Write-Host "==> 检测到非交互模式(stdin 非终端),自动部署所有已安装的工具..."
+  $deepSrc = Find-DeepSrc
+  if ($deepSrc) {
+    Write-Host "==> 检测到本地深度资源($deepSrc),先执行 OpenCode 深度集成..."
+    try { [void](Deploy-OpenCodeDeep) } catch { Write-Host "==> 深度集成未完全成功(不影响轻量人格部署): $_" }
+  }
   $deployed = $false
   foreach ($tool in $Tools) {
     if (Get-Command $tool.cmd -ErrorAction SilentlyContinue) {
@@ -368,25 +525,44 @@ function Invoke-Uninstall {
   }
 
   $aiderCfg = Join-Path $env:USERPROFILE ".aider.conf.yml"
+  $myAiderPath = Join-Path $env:USERPROFILE ".config\aider\eri.md"
+  if (Test-Path -LiteralPath "$aiderCfg.bak") {
+    Move-Item -LiteralPath "$aiderCfg.bak" -Destination $aiderCfg -Force
+    Write-Host "  已恢复: $aiderCfg (来自备份)"
+  }
+  # 重复部署会把本路径刷进备份, 恢复后再做 token 级清理 (只摘掉我们自己的路径, 保留用户其它 read 文件)
   if (Test-Path -LiteralPath $aiderCfg) {
-    if (Test-Path -LiteralPath "$aiderCfg.bak") {
-      Move-Item -LiteralPath "$aiderCfg.bak" -Destination $aiderCfg -Force
-      Write-Host "  已恢复: $aiderCfg (来自备份)"
-    } else {
-      $content = Get-Content -LiteralPath $aiderCfg -Raw -Encoding UTF8
-      if ($content -match "(?m)^read\s*:.*eri\.md") {
-        $content = $content -replace "(?m)^read\s*:.*eri\.md.*(\r?\n)?", ""
-        [System.IO.File]::WriteAllText($aiderCfg, $content, (New-Object System.Text.UTF8Encoding($false)))
-        Write-Host "  已清理: $aiderCfg"
-      }
+    $lines = Get-Content -LiteralPath $aiderCfg
+    $changed = $false
+    $out = @(foreach ($ln in $lines) {
+      if ($ln -match [regex]::Escape($myAiderPath)) {
+        $changed = $true
+        if ($ln -match '^\s*-') { continue }
+        $m = [regex]::Match($ln, '^(?<ind>\s*)read\s*:\s*(?<val>.*)$')
+        if ($m.Success) {
+          $val = $m.Groups['val'].Value.Trim()
+          if ($val -eq '') { $ln }
+          else {
+            $toks = @($val -split '\s+' | Where-Object { $_ -and $_ -ne $myAiderPath })
+            if ($toks.Count -gt 0) { $m.Groups['ind'].Value + 'read: ' + ($toks -join ' ') }
+          }
+        } else { $ln }
+      } else { $ln }
+    })
+    if ($changed) {
+      [System.IO.File]::WriteAllLines($aiderCfg, $out, (New-Object System.Text.UTF8Encoding($false)))
+      Write-Host "  已清理: $aiderCfg (移除本工具的 read 路径)"
     }
   }
 
-  $opcfg = Join-Path $env:USERPROFILE ".config\opencode\opencode.jsonc"
-  if (Test-Path -LiteralPath "$opcfg.bak") {
-    Move-Item -LiteralPath "$opcfg.bak" -Destination $opcfg -Force
-    Write-Host "  已恢复: $opcfg (来自备份)"
-  } elseif (Test-Path -LiteralPath $opcfg) {
+  # 恢复备份后再清理一次 default_agent (重复部署会把 eri 配置刷进 .bak)
+  foreach ($cfgName in @("opencode.jsonc", "opencode.json")) {
+    $opcfg = Join-Path (Join-Path $env:USERPROFILE ".config\opencode") $cfgName
+    if (Test-Path -LiteralPath "$opcfg.bak") {
+      Move-Item -LiteralPath "$opcfg.bak" -Destination $opcfg -Force
+      Write-Host "  已恢复: $opcfg (来自备份)"
+    }
+    if (-not (Test-Path -LiteralPath $opcfg)) { continue }
     $content = Get-Content -LiteralPath $opcfg -Raw -Encoding UTF8
     if ($content -match '"default_agent"\s*:\s*"eri"') {
       $content = [regex]::Replace($content, '\s*"default_agent"\s*:\s*"eri"\s*,?', '')
@@ -410,6 +586,15 @@ function Invoke-Uninstall {
 
   if (Test-Path -LiteralPath $EriCmd) { Remove-Item -LiteralPath $EriCmd -Force; Write-Host "  已删除: $EriCmd" }
   if (Test-Path -LiteralPath $EriPs1) { Remove-Item -LiteralPath $EriPs1 -Force; Write-Host "  已删除: $EriPs1" }
+
+  $deepCfg = Join-Path $env:USERPROFILE ".config\opencode"
+  if (Test-Path -LiteralPath (Join-Path $deepCfg "personality.json")) {
+    Write-Host ""
+    Write-Host "  提示: OpenCode 深度集成文件仍保留, 未自动移除:"
+    Write-Host "    $deepCfg\personality.json"
+    Write-Host "    $deepCfg\skill\eri\  $deepCfg\agent\  $deepCfg\package.json"
+    Write-Host "    如需彻底移除, 删除上述文件/目录, 并从 opencode.jsonc 中移除 plugin/skills/agent/command 字段"
+  }
 
   Write-Host ""
   Write-Host "==> 卸载完成! 新开终端生效♡"
@@ -502,14 +687,22 @@ foreach ($tool in $Tools) {
 
   if ($tool.mode -eq "aider") {
     $cfg = Join-Path $env:USERPROFILE ".aider.conf.yml"
-    if (Test-Path -LiteralPath $cfg) {
-      $content = Get-Content -LiteralPath $cfg -Raw -Encoding UTF8
-      if ($content -match "(?m)^read\s*:") {
-        $content = $content -replace "(?m)^read\s*:.*$", "read: $target"
-      } else {
-        $content = $content.TrimEnd() + "`nread: $target`n"
-      }
-      [System.IO.File]::WriteAllText($cfg, $content, (New-Object System.Text.UTF8Encoding($false)))
+    $content = if (Test-Path -LiteralPath $cfg) { Get-Content -LiteralPath $cfg -Raw -Encoding UTF8 } else { $null }
+    if ($null -ne $content -and $content -match [regex]::Escape($target)) {
+      # 已包含, 不重复追加
+    } elseif ($null -ne $content) {
+      $lines = Get-Content -LiteralPath $cfg
+      $done = $false
+      $out = @(foreach ($ln in $lines) {
+        if (-not $done -and $ln -match '^(?<ind>\s*)read\s*:\s*(?<val>.*)$') {
+          $done = $true
+          $val = $Matches['val'].Trim()
+          $ind = $Matches['ind']
+          if ($val -eq '') { $ln; "$ind  - $target" } else { "read: $val $target" }
+        } else { $ln }
+      })
+      if (-not $done) { $out = @($out + "read: $target") }
+      [System.IO.File]::WriteAllLines($cfg, $out, (New-Object System.Text.UTF8Encoding($false)))
     } else {
       [System.IO.File]::WriteAllText($cfg, "read: $target`n", (New-Object System.Text.UTF8Encoding($false)))
     }
