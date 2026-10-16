@@ -1,6 +1,6 @@
 {
   "name": "eri-ai",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "绘里酱（羽贵绘里）跨平台人格部署包：Markdown 人格本体 + 一键脚本，零平台依赖，适配 Linux / macOS / Windows / Termux / WSL 及 AMD / ARM。基于 opencode-personality 提供 default / 绘里酱 / erotic 三人格与 mood 系统，含 5 个子智慧体（色情/代码/调试/架构/测试）、eri skill、AUR 打包三件套与 eri CLI，支持 OpenCode、Claude Code、Codex、Gemini、Qwen、Aider 等 18 种终端编程工具。",
   "keywords": [
     "opencode",

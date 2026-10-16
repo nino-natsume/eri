@@ -2,7 +2,7 @@
 # Contributor: nino-natsume <1093219307@qq.com>
 
 pkgname=eri
-pkgver=1.1.5
+pkgver=1.1.6
 pkgrel=1
 pkgdesc="绘里酱人格包：opencode 人格技能、personality 配置（default/绘里酱/erotic）、5 个子智慧体、mood 系统、18 种终端工具部署脚本与跨平台安装器"
 arch=(any)
@@ -45,7 +45,7 @@ sha256sums=(
   '2f0f2dbfcfa3bb03d334a2cc842fb34726776110bf0c8cf8dec5919a5f201faa'
   '0702714a367532e09e26a5b6399e4ff83ac89facb6bafbefe7f12b6ca1d72049'
   '99c846429371d52f83e510ed90ca86398549c1f08f7e2774c3d08b64e3142bec'
-  'f203d3e42c1d7a4dd2404c53c49ae5ecf4bff5909c861ccad18e333adc4a2273'
+  '850ae8ff4ae7cb0918b901453a8077fdc521fd4d3a2130c5700527282a821fe6'
   '3fd45c326b2f1aeb9bd311dacc250e355b21e35d0f8793b7f41a981941efdef4'
   '8aaead0bdcff4fda3451156aec41a27eb3d7efde94405e83e30a6b991dd2eb54'
   '0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0'
