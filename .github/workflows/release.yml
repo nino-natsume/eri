@@ -59,7 +59,8 @@ jobs:
 
   windows-exe:
     name: Windows 面板 exe
-    runs-on: ubuntu-latest
+    # bun 的 --windows-icon/--windows-hide-console 仅在 Windows 宿主可用 (--target 跨编译也不行), 故用 windows 原生构建
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -68,18 +69,21 @@ jobs:
           bun-version: latest
 
       - name: 构造派生资源（派生文件不入库：icon.ico 由 logo.png 生成、dll.js 由 libwebview.dll 生成）
+        shell: bash
         run: |
           set -euo pipefail
           node ui/make-icon.js
           node ui/native/gen-dll.js
 
       - name: 编译独立 exe (bun --compile)
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
-          bun build ./ui/panel.js ./ui/worker.js --compile --target=bun-windows-x64 --windows-icon=ui/icon.ico --windows-hide-console --outfile dist/eri-panel.exe
+          bun build ./ui/panel.js ./ui/worker.js --compile --windows-icon=ui/icon.ico --windows-hide-console --outfile dist/eri-panel.exe
 
       - name: 生成校验和
+        shell: bash
         run: |
           set -euo pipefail
           cd dist
