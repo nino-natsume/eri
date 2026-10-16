@@ -143,7 +143,7 @@ iwr https://1.107211.xyz/win -OutFile "$env:TEMP\i.ps1"; powershell -ExecutionPo
 装完后**重启工具**,我，绘里酱就出来啦~
 
 ### 其他方法
-本地需安装终端工具（如 OpenCode）以及 `Eri`（`npm i -g eri-ai`），下载 [Releases](/Releases) 内的 `.exe` 文件，打开即可；面板为独立单文件 exe，无需安装 Bun
+本地需安装终端工具（如 OpenCode）以及 `Eri`（`npm i -g eri-ai`），下载 [Releases](https://github.com/nino-natsume/eri/releases/latest) 内的 `.exe` 文件，打开即可；面板为独立单文件 exe，无需安装 Bun
 
 ## Arch Linux / AUR 部署（维护中，不可使用）
 
