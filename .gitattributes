@@ -7,3 +7,9 @@
 PKGBUILD text eol=lf
 *.install text eol=lf
 .SRCINFO text eol=lf
+# 二进制资源（图标 / WebView 运行库）
+*.ico binary
+*.png binary
+*.dll binary
+*.so binary
+*.dylib binary

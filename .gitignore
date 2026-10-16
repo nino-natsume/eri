@@ -14,3 +14,7 @@ pkg/
 
 # 面板 exe 构建产物
 dist/
+
+# 派生构造文件（由 ui/make-icon.js / ui/native/gen-dll.js 生成, 不入库）
+ui/icon.ico
+ui/native/dll.js

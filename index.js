@@ -64,6 +64,18 @@ function sameContent(a, b) {
   try { return fs.readFileSync(a).equals(fs.readFileSync(b)); } catch { return false; }
 }
 
+// 定位 Bun 运行时（面板独立窗口依赖 bun:ffi）。npm 的 bun.cmd 垫片旁通常有真 exe。
+function findBun() {
+  if (process.versions && process.versions.bun) return process.execPath;
+  const found = commandExists('bun');
+  if (!found) return null;
+  if (/\.(cmd|bat)$/i.test(found)) {
+    const real = path.join(path.dirname(found), 'node_modules', 'bun', 'bin', 'bun.exe');
+    try { if (fs.statSync(real).isFile()) return real; } catch { /* ignore */ }
+  }
+  return found;
+}
+
 function mkdirp(dir) { fs.mkdirSync(dir, { recursive: true }); }
 
 function firstExisting(paths) {
@@ -367,7 +379,7 @@ function showHelp() {
 用法:
   eri update [RAW_URL]    更新人格到所有已安装的终端工具 (默认命令)
   eri deep                部署 OpenCode 深度集成 (skill + 5 子智慧体 + personality 插件 + mood)
-  eri ui [--no-open]      启动可视化管理面板 (读取当前设定, 复用已装 CLI 聊天)
+  eri ui                  启动可视化管理面板 (独立窗口, 无端口/无浏览器; 需 Bun)
   eri uninstall [--yes]   卸载所有已部署的人格文件 (不带 --yes 时交互式二次确认)
   eri help                显示帮助
   eri version             显示版本
@@ -375,7 +387,7 @@ function showHelp() {
 
 环境变量:
   ERI_URL                 自定义人格文件 URL
-  ERI_PANEL_PORT          管理面板监听端口 (默认 8710)
+  ERI_PANEL_ECHO          设为 1 时为面板加装自测工具（仅开发调试用）
 
 常见问题:
   若提示 'eri' 不是命令, 请确认已全局安装 (npm i -g eri-ai), 或打开新终端。`);
@@ -531,7 +543,22 @@ async function main() {
         process.exitCode = 1;
         return;
       }
-      const r = spawnSync(process.execPath, [panelPath, ...args.slice(1)], { stdio: 'inherit' });
+      const bun = findBun();
+      if (!bun) {
+        console.error('==> 独立窗口需要 Bun 运行时。');
+        console.error('    安装 Bun: npm i -g bun');
+        console.error('    Windows 用户也可直接使用打包好的 eri-panel.exe。');
+        process.exitCode = 1;
+        return;
+      }
+      let r;
+      if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(bun)) {
+        const line = '"' + bun + '" "' + panelPath + '"';
+        r = spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', '"' + line + '"'],
+          { stdio: 'inherit', windowsVerbatimArguments: true });
+      } else {
+        r = spawnSync(bun, [panelPath], { stdio: 'inherit' });
+      }
       process.exitCode = r.status || 0;
       return;
     }
