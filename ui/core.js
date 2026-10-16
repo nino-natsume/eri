@@ -42,8 +42,9 @@ const TOOLS = [
 ];
 
 // 非交互“一次性”调用参数（提示词以参数传入）
+const OPENCODE_MODEL = 'opencode/deepseek-v4.1-flash-free';
 const CHAT_ARGS = {
-  opencode: (p) => ['run', p],
+  opencode: (p) => ['run', '--model', OPENCODE_MODEL, p],
   claude: (p) => ['-p', p],
   codex: (p) => ['exec', p],
   gemini: (p) => ['-p', p],

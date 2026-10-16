@@ -220,7 +220,7 @@ eri uninstall    # 绘里酱人格设定卸载
 - 派生文件不入库：`ui/icon.ico` 由 `ui/logo.png` 经 `node ui/make-icon.js` 构造、`ui/native/dll.js` 由 `ui/native/libwebview.dll` 经 `node ui/native/gen-dll.js` 构造；构建 exe 时由 CI/`npm run build:exe` 自动生成，本地首次运行面板也会按需生成
 - 直接读取当前设定：`~/.config/opencode/personality.json` 的当前人格、心情（mood 覆盖）、子智慧体
 - **人格 / 心情 / 子智慧体均只读展示**（心情由 mood 系统随机调度；子智慧体自动跟随 opencode 运行状态——面板每 5 秒从 `~/.local/share/opencode/opencode.db` 读取最近活跃会话的 agent，只显示正在使用的那一个）；发送时可选择是否注入当前人格与心情前缀
-- 在界面内聊天：复用本机已安装的终端 CLI 做**非交互一次性调用**（OpenCode / Claude Code / Codex / Gemini / Qwen / Aider / Copilot / Cursor / Amp）；未安装的工具会标注"未安装"
+- 在界面内聊天：复用本机已安装的终端 CLI 做**非交互一次性调用**（OpenCode / Claude Code / Codex / Gemini / Qwen / Aider / Copilot / Cursor / Amp；OpenCode 默认指定免费模型 `opencode/deepseek-v4.1-flash-free`）；未安装的工具会标注"未安装"
 - 工作目录可改（自动记忆）；"同步人格"按钮等价于 `eri update`
 
 ## Astrbot人格设定步骤，其他类似的类似
