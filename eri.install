@@ -1,0 +1,26 @@
+post_install() {
+    echo '==> eri 已安装到 /usr/share/eri'
+    echo ''
+    echo '方式一（推荐）：运行一体化部署脚本：'
+    echo '    /usr/share/eri/install-eri.sh'
+    echo '    菜单选 0   = OpenCode 深度集成（skill + 5 子智慧体 + personality 插件 + mood）'
+    echo '    菜单选 1-18 = 部署到 Claude Code / Codex / Gemini CLI 等终端工具（轻量人格）'
+    echo ''
+    echo '方式二：手动在 opencode 全局配置 (~/.config/opencode/opencode.jsonc) 中引用：'
+    echo '    "skills": { "paths": ["/usr/share/eri/skill"] }'
+    echo '    并把 personality.json 复制为 ~/.config/opencode/personality.json'
+    echo '    把 agent/*.md 复制到 ~/.config/opencode/agent/'
+    echo ''
+    echo '部署后可用 eri update 更新人格、eri uninstall 卸载：'
+    echo '    eri help'
+    echo ''
+    echo '完成后请退出并重启 opencode 使配置生效。'
+}
+
+post_upgrade() {
+    post_install
+}
+
+post_remove() {
+    echo '==> eri 已移除（~/ 下的用户配置不会被自动删除）'
+}

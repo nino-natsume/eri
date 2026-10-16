@@ -1,0 +1,9 @@
+{
+  "name": "eri-opencode-config",
+  "private": true,
+  "description": "OpenCode 深度集成的私有依赖清单：仅在选中/检测到 OpenCode 时由 eri deep 或 install-eri 复制为 ~/.config/opencode/package.json 并安装，不随 eri-ai 本体安装。",
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.19.0",
+    "opencode-personality": "^1.2.0"
+  }
+}

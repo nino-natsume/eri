@@ -1,0 +1,16 @@
+node_modules
+opencode.exe
+opencode.jsonc
+bun.lock
+*.env
+.env*
+
+# AUR / makepkg 构建产物
+src/
+pkg/
+*.pkg.tar.xz
+*.pkg.tar.zst
+*.log
+
+# 面板 exe 构建产物
+dist/
