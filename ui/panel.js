@@ -17,6 +17,7 @@ const webviewMod = require('./webview.js');
 const PAGE = require('./page.js');
 
 const AUTOTEST = process.env.ERI_PANEL_AUTOTEST;
+const IS_COMPILED = typeof Bun !== 'undefined' && Bun.isStandaloneExecutable;
 
 function pageHtml() {
   if (!AUTOTEST) return PAGE;
@@ -25,7 +26,8 @@ function pageHtml() {
 
 // 图标为派生文件（不入库）：缺失时本地按需构造；只读安装目录下静默降级为默认图标。
 function ensureIconFile() {
-  const iconPath = path.join(__dirname, 'icon.ico');
+  const dir = IS_COMPILED ? path.dirname(process.execPath) : __dirname;
+  const iconPath = path.join(dir, 'icon.ico');
   try {
     if (fs.existsSync(iconPath)) return iconPath;
     const { buildIcon } = require('./make-icon.js');
@@ -44,7 +46,11 @@ function main() {
 
   const sab = new SharedArrayBuffer(RING_SIZE);
   const ring = createRing(sab);
-  const worker = new Worker(new URL('./worker.js', pathToFileURL(__filename)), { workerData: { sab } });
+  // 单文件 exe 中 Worker 必须用静态字面量（构建时映射为内嵌 chunk）；开发态按文件 URL 解析。
+  const worker = new Worker(
+    IS_COMPILED ? './worker.js' : new URL('./worker.js', pathToFileURL(__filename)),
+    { workerData: { sab } },
+  );
   worker.on('error', (e) => webviewMod.nativeErrorLog('worker: ' + String((e && e.message) || e)));
 
   let sidSeq = 0;

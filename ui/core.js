@@ -9,6 +9,7 @@ const { spawn } = require('child_process');
 
 const HOME = os.homedir();
 const h = (...a) => path.join(HOME, ...a);
+const IS_COMPILED = typeof Bun !== 'undefined' && Bun.isStandaloneExecutable;
 
 const PKG = (() => { try { return require('../package.json'); } catch { return { version: '0.0.0' }; } })();
 const BUILTIN_PERSONALITY = (() => { try { return require('../personality.json'); } catch { return null; } })();
@@ -229,8 +230,8 @@ function syncJob() {
     let child;
     try {
       if (eri) child = spawnTool(eri, ['update'], HOME);
-      else if (fs.existsSync(entry)) child = spawnTool(process.execPath, [entry, 'update'], HOME);
-      else return resolve({ status: 400, body: { error: '未找到 eri 命令或 index.js' } });
+      else if (!IS_COMPILED && fs.existsSync(entry)) child = spawnTool(process.execPath, [entry, 'update'], HOME);
+      else return resolve({ status: 400, body: { error: IS_COMPILED ? '未安装 eri 命令（npm i -g eri-ai），无法同步' : '未找到 eri 命令或 index.js' } });
     } catch (err) { return resolve({ status: 500, body: { error: String((err && err.message) || err) } }); }
     let out = '';
     child.stdout.on('data', (d) => { out += d; });

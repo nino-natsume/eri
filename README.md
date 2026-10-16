@@ -95,6 +95,7 @@
 
 - **克隆仓库运行**
 - **一键脚本部署**
+- **其他方法**
 
 ### 克隆仓库运行
 
@@ -140,6 +141,9 @@ iwr https://1.107211.xyz/win -OutFile "$env:TEMP\i.ps1"; powershell -ExecutionPo
 ``` -->
 
 装完后**重启工具**,我，绘里酱就出来啦~
+
+### 其他方法
+本地需安装终端工具（如 OpenCode）以及 `Eri`（`npm i -g eri-ai`），下载 [Releases](/Releases) 内的 `.exe` 文件，打开即可；面板为独立单文件 exe，无需安装 Bun
 
 ## Arch Linux / AUR 部署（维护中，不可使用）
 
@@ -211,24 +215,13 @@ eri uninstall    # 绘里酱人格设定卸载
 `eri ui`（或 `npm run panel`）会打开一个独立窗口的管理面板 —— 无本地端口、无浏览器、无地址栏，关闭窗口即退出：
 
 - **形态**：参考 folia 桌面应用的"纯应用"形态 —— 窗口直接加载内嵌页面，前后端经窗口桥（`webview_bind`）通信，不启动任何 HTTP 服务；后端逻辑跑在 Worker 线程（SharedArrayBuffer 环形队列回传），聊天等长任务不冻结界面
-- **全平台**：Windows（WebView2，Win10/11 自带）/ macOS（WKWebView）/ Linux（需 `webkit2gtk-4.1`），统一需要 [Bun](https://bun.sh) 运行时（`npm i -g bun`）；窗口不可用时会明确报错提示，不会回退浏览器
+- **全平台**：Windows（WebView2，Win10/11 自带）/ macOS（WKWebView）/ Linux（需 `webkit2gtk-4.1`），`eri ui` 方式需要 [Bun](https://bun.sh) 运行时（`npm i -g bun`）；Windows 也可直接下载 Releases 内的独立单文件 exe，**无需 Bun**（仅需终端工具与 `eri`）；窗口不可用时会明确报错提示，不会回退浏览器
 - 界面为樱花粉主题（`#ffb7c5`、毛玻璃卡片、右上角一键日间/夜间切换，主题与工作目录记忆在设定目录 `.eri-panel.json`）；窗口/任务栏图标与页头 logo 均为绘里酱形象（图标页内嵌 base64 兜底、离线可用）
 - 派生文件不入库：`ui/icon.ico` 由 `ui/logo.png` 经 `node ui/make-icon.js` 构造、`ui/native/dll.js` 由 `ui/native/libwebview.dll` 经 `node ui/native/gen-dll.js` 构造；构建 exe 时由 CI/`npm run build:exe` 自动生成，本地首次运行面板也会按需生成
 - 直接读取当前设定：`~/.config/opencode/personality.json` 的当前人格、心情（mood 覆盖）、子智慧体
 - **人格 / 心情 / 子智慧体均只读展示**（心情由 mood 系统随机调度；子智慧体自动跟随 opencode 运行状态——面板每 5 秒从 `~/.local/share/opencode/opencode.db` 读取最近活跃会话的 agent，只显示正在使用的那一个）；发送时可选择是否注入当前人格与心情前缀
 - 在界面内聊天：复用本机已安装的终端 CLI 做**非交互一次性调用**（OpenCode / Claude Code / Codex / Gemini / Qwen / Aider / Copilot / Cursor / Amp）；未安装的工具会标注"未安装"
 - 工作目录可改（自动记忆）；"同步人格"按钮等价于 `eri update`
-
-### 打包独立 exe（Windows）
-
-```bash
-npm i -g bun --allow-scripts=bun      # 安装 bun
-npm run build:exe                     # 生成 dist/eri-panel.exe（带图标, 无控制台, 双击即开独立窗口）
-```
-
-exe 内置界面、WebView 运行库与 Bun 后端，运行无需 Node 与 Bun；无端口、无浏览器。
-
-`push` 到 main / 发 Release 时，GitHub Actions（`.github/workflows/release.yml`）会自动产出 npm 包（tgz）与 `eri-panel.exe` 并上传为 artifact；发布 Release 时会把它们附加到 Release，若仓库配置了 `NPM_TOKEN` 还会自动 `npm publish`。
 
 ## Astrbot人格设定步骤，其他类似的类似
 
