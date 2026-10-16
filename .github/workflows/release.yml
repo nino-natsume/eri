@@ -67,7 +67,7 @@ jobs:
         with:
           bun-version: latest
 
-      - name: 构造派生资源 (派生文件不入库: icon.ico 由 logo.png 生成, dll.js 由 libwebview.dll 生成)
+      - name: 构造派生资源（派生文件不入库：icon.ico 由 logo.png 生成、dll.js 由 libwebview.dll 生成）
         run: |
           set -euo pipefail
           node ui/make-icon.js
