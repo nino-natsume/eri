@@ -1,6 +1,6 @@
 name: Release
 
-# push 到 main (或 v* tag / 手动触发): 构建 Windows 独立面板 exe, 更新 Release `latest` 内的资产, 并把 `latest` tag 移动到本次提交
+# push 到 main (或 v* tag / 手动触发): 构建 Windows 独立面板 exe, 重建 Release `latest`（刷新发布日期, 仓库页显示为最新）并更新资产, 同时把 `latest` tag 移动到本次提交
 # GitHub Release 发布: 把 exe (含校验和) 附加到该 Release
 on:
   push:
@@ -71,30 +71,6 @@ jobs:
           merge-multiple: true
           path: dist
 
-      - name: 附加 exe 到 Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-          REL_TAG: ${{ github.event.release.tag_name }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT" = "release" ]; then TAG="$REL_TAG"; else TAG="latest"; fi
-          ls -l dist
-          if ! test -f dist/eri-panel.exe; then
-            echo "::error::未找到 dist/eri-panel.exe（artifact 结构异常）"
-            ls -lR dist
-            exit 1
-          fi
-          if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
-            gh release create "$TAG" -R "$REPO" --title "$TAG" --notes "面板独立单文件 exe（无需 Bun）：eri-panel.exe + SHA256SUMS.txt"
-          fi
-          if ! gh release upload "$TAG" -R "$REPO" dist/eri-panel.exe dist/SHA256SUMS.txt --clobber; then
-            echo "::error::gh release upload 失败"
-            exit 1
-          fi
-          echo "==> Release [$TAG] 资产已更新"
-
       - name: 移动 latest tag 到本次提交
         if: github.event_name != 'release'
         env:
@@ -105,6 +81,36 @@ jobs:
             gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/latest" -f sha="$GITHUB_SHA" >/dev/null
           fi
           echo "==> latest -> $GITHUB_SHA"
+
+      - name: 更新 Release（push 时重建刷新日期）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REL_TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ls -l dist
+          if ! test -f dist/eri-panel.exe; then
+            echo "::error::未找到 dist/eri-panel.exe（artifact 结构异常）"
+            ls -lR dist
+            exit 1
+          fi
+          if [ "$EVENT" = "release" ]; then
+            TAG="$REL_TAG"
+          else
+            TAG="latest"
+            gh release delete "$TAG" -R "$REPO" --yes >/dev/null 2>&1 || true
+            if ! gh release create "$TAG" -R "$REPO" --title "绘里酱" --notes "**eri-panel.exe** — 绘里酱管理面板（独立单文件, 无需 Bun, 打开即用）；SHA256SUMS.txt 为校验和。本 Release 由 CI 在每次推送时自动重建更新, 构建自 main @ ${GITHUB_SHA::7}"; then
+              echo "::error::gh release create 失败"
+              exit 1
+            fi
+          fi
+          if ! gh release upload "$TAG" -R "$REPO" dist/eri-panel.exe dist/SHA256SUMS.txt --clobber; then
+            echo "::error::gh release upload 失败"
+            exit 1
+          fi
+          echo "==> Release [$TAG] 资产已更新"
 
   summary:
     name: 汇总
