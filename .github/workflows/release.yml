@@ -76,14 +76,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
           REL_TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           if [ "$EVENT" = "release" ]; then TAG="$REL_TAG"; else TAG="latest"; fi
           ls -l dist
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "$TAG" --notes "面板独立单文件 exe（无需 Bun）：eri-panel.exe + SHA256SUMS.txt"
+          if ! test -f dist/eri-panel.exe; then
+            echo "::error::未找到 dist/eri-panel.exe（artifact 结构异常）"
+            ls -lR dist
+            exit 1
           fi
-          gh release upload "$TAG" dist/eri-panel.exe dist/SHA256SUMS.txt --clobber
+          if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" -R "$REPO" --title "$TAG" --notes "面板独立单文件 exe（无需 Bun）：eri-panel.exe + SHA256SUMS.txt"
+          fi
+          if ! gh release upload "$TAG" -R "$REPO" dist/eri-panel.exe dist/SHA256SUMS.txt --clobber; then
+            echo "::error::gh release upload 失败"
+            exit 1
+          fi
           echo "==> Release [$TAG] 资产已更新"
 
       - name: 移动 latest tag 到本次提交
