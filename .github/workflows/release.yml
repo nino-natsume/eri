@@ -1,6 +1,6 @@
 name: Release
 
-# push 到 main (或 v* tag / 手动触发): 构建 Windows 独立面板 exe, 并自动更新 Release `latest` 内的资产
+# push 到 main (或 v* tag / 手动触发): 构建 Windows 独立面板 exe, 更新 Release `latest` 内的资产, 并把 `latest` tag 移动到本次提交
 # GitHub Release 发布: 把 exe (含校验和) 附加到该 Release
 on:
   push:
@@ -85,6 +85,17 @@ jobs:
           fi
           gh release upload "$TAG" dist/eri-panel.exe dist/SHA256SUMS.txt --clobber
           echo "==> Release [$TAG] 资产已更新"
+
+      - name: 移动 latest tag 到本次提交
+        if: github.event_name != 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true >/dev/null 2>&1; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/latest" -f sha="$GITHUB_SHA" >/dev/null
+          fi
+          echo "==> latest -> $GITHUB_SHA"
 
   summary:
     name: 汇总
